@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<!--
+  =============================================================================
+   INTERFAZ VISUAL DEL SMART ROUTER  (archivo Index.html)
+  =============================================================================
+
+   ¿QUÉ ES ESTE ARCHIVO?
+   ---------------------
+   Es la "cara visible" del sistema: la página web que ve y usa la persona
+   (el front-end). Corre en el navegador, NO en el servidor.
+
+   Mientras el archivo Code.gs (servidor) procesa los datos pesados (leer Excel,
+   generar archivos), este archivo se encarga de:
+     - Mostrar el panel lateral con los controles (subir archivo, elegir sucursal...).
+     - Dibujar el MAPA con los pedidos como puntos numerados.
+     - Permitir reasignar pedidos a otras rutas (a mano o con selección por "lazo").
+     - Calcular y mostrar estadísticas de cada ruta (distancia, tiempo, bultos).
+
+   Está dividido en tres grandes secciones:
+     1. <head>  -> librerías externas y estilos visuales (CSS).
+     2. <body>  -> la estructura visual (panel lateral, mapa, barra inferior).
+     3. <script>-> la lógica/programación que da vida a la interfaz (JavaScript).
+  =============================================================================
+-->
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- Leaflet: librería gratuita para mostrar mapas interactivos en la web.
+       Se cargan su hoja de estilos (.css) y su código (.js). -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Leaflet-Lasso: complemento que permite seleccionar varios puntos del mapa
+       "encerrándolos" con un trazo a mano alzada (como un lazo). -->
+  <script src="https://unpkg.com/leaflet-lasso@2.2.4/dist/leaflet-lasso.umd.js"></script>
+
+  <!-- Material Icons: librería de íconos de Google (tienda, descarga, etc.). -->
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+
+  <!--
+    ===========================================================================
+     ESTILOS (CSS): definen cómo se ve TODO. Colores, tamaños, posiciones.
+     El CSS no tiene lógica: solo describe la apariencia de cada elemento.
+    ===========================================================================
+  -->
+  <style>
+    /* --- ESTILOS GENERALES (Del diseño original) ---
+       'body' es el contenedor de toda la página. Aquí se define el color de
+       fondo azul oscuro y que el contenido ocupe toda la altura de la pantalla. */
+    body {
+      font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      margin: 0; display: flex; flex-direction: column; height: 100vh;
+      background: #0c1b49; overflow: hidden;
+    }
+
+    /* --- LOGO --- (el texto "CCO | RUTEOS VS" arriba en el panel) */
+    .brand-logo {
+      font-size: 24px; font-weight: 900; color: white; margin-bottom: 25px;
+      letter-spacing: 1px; display: flex; align-items: center; gap: 10px;
+    }
+    .brand-logo .separator { font-weight: 300; color: rgba(255,255,255,0.4); font-size: 20px; }
+    .brand-logo .highlight { color: #d64394; } /* La palabra resaltada en rosado. */
+
+    /* LAYOUT (distribución): coloca el panel lateral y el mapa uno al lado del otro. */
+    #main-container {
+      display: flex; flex-grow: 1; height: calc(100vh - 85px); width: 100%;
+    }
+
+    /* Panel lateral izquierdo: ancho fijo, con degradado azul-rosado y los controles. */
+    #sidebar {
+      width: 300px; padding: 25px; display: flex; flex-direction: column;
+      box-shadow: 4px 0 15px rgba(0,0,0,0.4); z-index: 1000;
+      background: linear-gradient(180deg, #0c1b49 0%, #0c1b49 30%, #be1877 100%);
+      color: white; overflow-y: auto;
+    }
+
+    /* El mapa: ocupa todo el espacio restante a la derecha del panel. */
+    #map { flex-grow: 1; height: 100%; width: 100%; position: relative; }
+
+    /* BARRA INFERIOR: franja de 85px de alto donde van las estadísticas y el botón exportar. */
+    #bottomPanel {
+      height: 85px; background: #0a163a; border-top: 1px solid #d64394;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 25px; box-shadow: 0 -4px 15px rgba(0,0,0,0.5); z-index: 2000; color: white;
+    }
+
+    /* Contenedor central de la barra inferior (estadísticas + "powered by cco"). */
+    .center-wrapper {
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 4px; flex-grow: 1; overflow: hidden;
+    }
+    .footer-cco-bottom { font-size: 9px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 2px; margin-top: 2px; }
+    .bottom-left, .bottom-right { width: 250px; display: flex; align-items: center; }
+    .bottom-right { justify-content: flex-end; }
+
+    /* --- ESTILOS MAPA Y MARCADORES ---
+       Apariencia de los círculos numerados que representan cada pedido en el mapa. */
+    .number-icon {
+        display: flex; justify-content: center; align-items: center;
+        color: white; font-weight: bold; font-size: 11px;
+        border-radius: 50%; border: 2px solid white;
+        box-shadow: 0 3px 5px rgba(0,0,0,0.5); font-family: Arial, sans-serif;
+    }
+
+    /* CONTROLES MASIVOS ("BULK"): caja para mover muchos pedidos a la vez de ruta. */
+    .bulk-controls {
+      display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.05);
+      padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);
+    }
+    .bulk-controls label { margin: 0; font-size: 10px; font-weight: bold; color: #d64394; }
+    .bulk-controls select { width: 70px; margin: 0; padding: 4px; height: 28px; font-size: 12px; background: rgba(12, 27, 73, 0.5); border: 1px solid rgba(255,255,255,0.3); }
+    .bulk-controls button { width: auto; margin: 0; padding: 0 12px; height: 28px; font-size: 10px; line-height: 28px; border-radius: 4px;}
+
+    /* STATS SCROLL: contenedor de las tarjetas de ruta que se desplaza horizontalmente. */
+    #statsContainer {
+      display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; max-width: 100%;
+      scrollbar-width: none; align-items: center;
+    }
+    #statsContainer::-webkit-scrollbar { display: none; } /* Oculta la barra de desplazamiento. */
+
+    /* TARJETAS DE RUTA (BADGES): cada tarjeta muestra el resumen de una ruta. */
+    .route-badge {
+      display: flex; flex-direction: column; justify-content: center;
+      background: rgba(255,255,255,0.08); padding: 6px 14px; border-radius: 6px;
+      border-left: 4px solid #fff; min-width: 100px;
+      cursor: pointer; user-select: none; transition: all 0.2s;
+    }
+    .route-badge:hover { background: rgba(255,255,255,0.15); transform: translateY(-2px); } /* Efecto al pasar el mouse. */
+
+    .route-badge span.r-name { font-size: 10px; font-weight: bold; text-transform: uppercase; opacity: 0.9; margin-bottom: 2px;}
+    .route-badge span.r-data { font-size: 13px; font-weight: bold; color: white; white-space: nowrap; }
+    .route-badge span.r-time { font-size: 10px; color: #bbb; display: flex; align-items: center; gap: 5px; margin-top: 2px;}
+
+    /* BOTON EXPORTAR: botón verde de "Exportar Excel" (oculto hasta que haya rutas). */
+    #btnSave {
+      background: #10b981; color: white; font-weight: bold; border: none;
+      padding: 0 20px; height: 40px; border-radius: 6px; cursor: pointer; display: none;
+      font-size: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.2); white-space: nowrap;
+      align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    #btnSave:hover { background: #059669; transform: translateY(-2px); }
+
+    /* PANELES LATERALES: las cajitas con borde dentro del panel izquierdo. */
+    .panel {
+      background: rgba(0, 0, 0, 0.3); padding: 15px; border-radius: 8px;
+      margin-bottom: 12px; border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+    label { font-size: 10px; color: #ffffff; text-transform: uppercase; font-weight: bold; display: block; margin-top: 10px; letter-spacing: 0.5px; }
+
+    /* Apariencia de los menús desplegables y campos de texto. */
+    select, input {
+      width: 100%; padding: 8px; margin-top: 4px; border-radius: 4px;
+      border: 1px solid rgba(255,255,255,0.3); background: rgba(12, 27, 73, 0.5);
+      color: white; font-size: 12px; box-sizing: border-box;
+    }
+    select[multiple] { height: 70px; }                 /* Lista que permite elegir varios horarios. */
+    option:checked { background-color: #d64394; }      /* Color de la opción seleccionada. */
+
+    /* Zona para subir el archivo (el recuadro punteado "Seleccionar Excel..."). */
+    .upload-area {
+      border: 1px dashed rgba(255,255,255,0.4); padding: 10px; text-align: center;
+      border-radius: 6px; cursor: pointer; background: rgba(255,255,255,0.03); transition: 0.2s;
+    }
+    .upload-area:hover { background: rgba(255,255,255,0.08); border-color: #d64394; }
+
+    /* Botón principal rosado ("CALCULAR RUTAS"). */
+    button.primary-btn {
+      background: #d64394; color: white; font-weight: bold; cursor: pointer; border: none;
+      margin-top: 15px; width: 100%; padding: 10px; border-radius: 6px;
+      text-transform: uppercase; transition: 0.3s; font-size: 12px;
+    }
+    button.primary-btn:hover { background: #be1877; }
+
+    /* Consola: cuadro inferior del panel donde se muestran mensajes del sistema. */
+    .console {
+      background: rgba(0,0,0,0.4); color: #d64394; font-family: monospace; font-size: 10px;
+      padding: 10px; height: 40px; overflow-y: auto; border-radius: 4px; margin-top: 10px; flex-grow: 1;
+      border: 1px solid rgba(214, 67, 148, 0.2);
+    }
+
+    /* Popups de Leaflet: las ventanitas que aparecen al hacer clic en un pedido del mapa. */
+    .popup-select { width: 100%; margin-top: 8px; padding: 5px; color: #0c1b49; font-weight: bold; background: #eee; border: 1px solid #ccc;}
+    .popup-check { display: flex; align-items: center; gap: 5px; margin-bottom: 5px; font-weight: bold; color: #0c1b49; font-size: 12px; border-bottom: 1px solid #ccc; padding-bottom: 5px;}
+    .popup-check input { width: auto; margin: 0; }
+  </style>
+</head>
+<body>
+
+<!--
+  ===========================================================================
+   ESTRUCTURA VISUAL (HTML): los "ladrillos" que el usuario ve en pantalla.
+  ===========================================================================
+-->
+
+<!-- Contenedor principal: panel lateral (izquierda) + mapa (derecha). -->
+<div id="main-container">
+
+  <!-- PANEL LATERAL IZQUIERDO con todos los controles. -->
+  <div id="sidebar">
+    <!-- Logo de la aplicación. -->
+    <div class="brand-logo">
+      <span>CCO</span><span class="separator">|</span><span class="highlight">RUTEOS VS</span>
+    </div>
+
+    <!-- PASO 1: subir el archivo Excel maestro.
+         Al hacer clic en el recuadro, se dispara el selector de archivos oculto.
+         Cuando el usuario elige un archivo, se llama a la función subirArchivo(). -->
+    <div class="panel">
+      <label style="margin-top:0">1. Archivo Maestro</label>
+      <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+        <span id="fileName" style="font-size:11px">Seleccionar Excel...</span>
+        <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none" onchange="subirArchivo(this)">
+      </div>
+    </div>
+
+    <!-- PASOS 2, 3 y 4: aparecen recién DESPUÉS de subir el archivo (display:none = oculto al inicio). -->
+    <div class="panel" id="controls" style="display:none">
+      <!-- PASO 2: elegir la sucursal. Al cambiarla se actualizan los horarios disponibles. -->
+      <label style="margin-top:0">2. Sucursal</label>
+      <select id="selLocal" onchange="actualizarHoras()"></select>
+
+      <!-- PASO 3: elegir uno o varios bloques de horario (con Ctrl + clic). -->
+      <label>3. Bloque(s) (Ctrl + Click)</label>
+      <select id="selHora" multiple></select>
+
+      <!-- PASO 4: parámetros del cálculo:
+           - Móviles: cuántos camiones/vehículos hay disponibles (= cuántas rutas crear).
+           - Vel.: velocidad promedio en km/h (para estimar tiempos).
+           - Min/Ent: minutos que toma cada entrega. -->
+      <label>4. Configuración</label>
+      <div style="display:flex; gap:5px; margin-bottom: 5px;">
+        <div style="width:33%"><input type="number" id="trucks" value="3" min="1" placeholder="Móv"></div>
+        <div style="width:33%"><input type="number" id="speed" value="60" placeholder="Km/h"></div>
+        <div style="width:33%"><input type="number" id="serviceTime" value="8" placeholder="Min"></div>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa; padding:0 2px;">
+         <span>Móviles</span><span>Vel.</span><span>Min/Ent</span>
+      </div>
+
+      <!-- Botón que inicia el cálculo/optimización de rutas. -->
+      <button class="primary-btn" onclick="procesar()">CALCULAR RUTAS</button>
+    </div>
+
+    <!-- Consola de mensajes: informa al usuario qué está pasando paso a paso. -->
+    <div id="status" class="console">Sistema listo.</div>
+  </div>
+
+  <!-- El MAPA interactivo (lo dibuja Leaflet). -->
+  <div id="map"></div>
+</div>
+
+<!-- BARRA INFERIOR: controles masivos, estadísticas de rutas y botón exportar. -->
+<div id="bottomPanel">
+  <!-- Lado izquierdo: controles para mover en bloque varios pedidos seleccionados. -->
+  <div class="bottom-left">
+    <div class="bulk-controls" id="bulkActions" style="display:none;">
+      <label>BULK</label>
+      <!-- Muestra cuántos pedidos hay seleccionados ahora mismo. -->
+      <span id="selCount" style="font-size:10px; background:#fff; color:#0c1b49; padding:2px 5px; border-radius:3px; font-weight:bold;">0</span>
+      <!-- Menú para elegir a qué ruta mover los seleccionados. -->
+      <select id="bulkRouteTarget"><option value="LAT">LAT</option></select>
+      <button onclick="aplicarCambioMasivo()" style="background:#d64394; color:white; border:none; border-radius:3px; cursor:pointer; font-weight:bold;">MOVER</button>
+      <button onclick="limpiarSeleccion()" style="background:transparent; border:1px solid rgba(255,255,255,0.3); color:#fff; cursor:pointer;">✖</button>
+    </div>
+  </div>
+
+  <!-- Centro: aquí se muestran las tarjetas de estadísticas de cada ruta. -->
+  <div class="center-wrapper">
+    <div id="statsContainer">
+      <span style="font-size:11px; color:rgba(255,255,255,0.3); letter-spacing:1px;">ESPERANDO CÁLCULO DE RUTAS...</span>
+    </div>
+    <div class="footer-cco-bottom">powered by cco</div>
+  </div>
+
+  <!-- Lado derecho: botón para descargar el Excel final. -->
+  <div class="bottom-right">
+    <button id="btnSave" onclick="descargar()">
+      <span class="material-icons">file_download</span> EXPORTAR EXCEL
+    </button>
+  </div>
+</div>
+
+<!--
+  ===========================================================================
+   LÓGICA / PROGRAMACIÓN (JavaScript): aquí ocurre TODA la inteligencia
+   de la interfaz. Responde a los clics, dibuja el mapa, optimiza rutas, etc.
+  ===========================================================================
+-->
+<script>
+  /* --- VARIABLES GLOBALES (memoria del programa mientras está abierto) --- */
+  let map, markers = [], currentOrders = [], DATA_CONTEOS = {};
+  let selectedOrdersIndices = new Set(); // Conjunto con los pedidos marcados/seleccionados.
+  let lasso;                             // Herramienta de selección por lazo.
+  let activeFilter = null;               // Si está activo, muestra solo una ruta en el mapa.
+
+  // Paleta de colores para diferenciar visualmente cada ruta en el mapa y las tarjetas.
+  const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#a855f7', '#14b8a6'];
+  const COLOR_LAT = "#9e9e9e"; // Color gris para la categoría "LAT" (laterales/aparte).
+
+  // Coordenadas (latitud/longitud) de cada sucursal, identificadas por su código.
+  // Sirven para centrar el mapa y para calcular distancias desde la sucursal.
+  const COORD_LOC = {
+  "58": { lat: -33.0076, lng: -71.5448 },
+  "94": { lat: -39.8285, lng: -73.2305 },
+  "98": { lat: -36.8282, lng: -73.0614 },
+  "99": { lat: -41.4646, lng: -72.9642 },
+  "120": { lat: -38.7396, lng: -72.6371 },
+  "121": { lat: -53.1366, lng: -70.9142 },
+  "606": { lat: -37.0211, lng: -73.1408 }, // Av. Manuel Montt 2328, Coronel
+  "608": { lat: -36.6111, lng: -72.1023 },
+  "618": { lat: -40.5843, lng: -73.1098 },
+  "657": { lat: -42.4728, lng: -73.7645 },
+  "697": { lat: -34.5822, lng: -70.9904 },
+  "983": { lat: -32.7877, lng: -71.2140 }
+};
+
+  /* --- INICIALIZACIÓN DEL MAPA ---
+     Crea el mapa, lo centra en una posición inicial y le pone los controles de zoom. */
+  map = L.map('map', {zoomControl: false}).setView([-33.45, -70.66], 12);
+  // Capa de imágenes del mapa: usa OpenStreetMap (mapas gratuitos y abiertos).
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+  L.control.zoom({position: 'topright'}).addTo(map); // Botones de + / - para acercar/alejar.
+
+  // --- CONFIGURACIÓN DEL LAZO ---
+  // Crea la herramienta de selección por lazo sobre el mapa.
+  lasso = L.lasso(map, { intersect: true });
+
+  // Cuando el usuario termina de dibujar el lazo, este bloque agrega a la selección
+  // todos los pedidos que quedaron encerrados dentro del trazo.
+  map.on('lasso.finished', (event) => {
+    event.layers.forEach(layer => {
+        if (layer.options.orderIndex !== undefined) {
+            selectedOrdersIndices.add(layer.options.orderIndex);
+        }
+    });
+    document.getElementById('selCount').innerText = selectedOrdersIndices.size; // Actualiza el contador.
+    render();                                                                    // Redibuja el mapa.
+    log(`Selección de lazo: ${event.layers.length} puntos encontrados.`);
+  });
+
+  // Crea el botón del lazo (ícono de "gesto") en la esquina superior izquierda del mapa.
+  const lassoControl = L.control({position: 'topleft'});
+  lassoControl.onAdd = function() {
+      const div = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+      div.innerHTML = `<a href="#" id="lassoBtn" title="Selección de Lazo"
+          style="background:white; width:34px; height:34px; display:flex; align-items:center; justify-content:center; cursor:pointer; text-decoration:none;">
+          <span class="material-icons" style="color:#333; font-size:20px;">gesture</span>
+      </a>`;
+      // Al hacer clic en el botón, se activa o desactiva el modo lazo (y cambia su color).
+      div.onclick = (e) => {
+          e.preventDefault();
+          if (lasso.enabled()) {
+              lasso.disable();
+              document.getElementById('lassoBtn').style.backgroundColor = "white";
+              document.getElementById('lassoBtn').querySelector('span').style.color = "#333";
+              log("Lazo desactivado");
+          } else {
+              lasso.enable();
+              document.getElementById('lassoBtn').style.backgroundColor = "#d64394";
+              document.getElementById('lassoBtn').querySelector('span').style.color = "white";
+              log("Lazo activado: Dibuja encerrando los puntos");
+          }
+      };
+      return div;
+  };
+  lassoControl.addTo(map);
+
+  /**
+   * log(m)
+   * ------
+   * Escribe un mensaje en la consola del panel (el cuadro inferior izquierdo).
+   * Sirve para que el usuario vea qué está haciendo el sistema en cada momento.
+   */
+  function log(m) { const s = document.getElementById('status'); s.innerHTML += "<br>> " + m; s.scrollTop = s.scrollHeight; }
+
+  /**
+   * subirArchivo(input)
+   * -------------------
+   * Se ejecuta cuando el usuario elige un archivo Excel.
+   * Lee el archivo en el navegador y se lo envía al servidor (función processUpload
+   * de Code.gs). Con la respuesta, llena el menú de sucursales.
+   */
+  function subirArchivo(input) {
+    if (!input.files[0]) return;                 // Si no hay archivo, no hace nada.
+    const file = input.files[0];
+    document.getElementById('fileName').innerText = file.name.substring(0, 20) + "..."; // Muestra el nombre.
+    log("Leyendo archivo...");
+
+    const reader = new FileReader();             // Herramienta del navegador para leer archivos.
+    reader.onload = function(e) {                // Cuando termina de leer el archivo...
+      // google.script.run = puente que llama a una función del servidor (Code.gs).
+      // withSuccessHandler = qué hacer cuando el servidor responda con éxito.
+      google.script.run.withSuccessHandler(res => {
+        if(res.error) return log("Error: " + res.error);
+        DATA_CONTEOS = res.mapaConteos;          // Guarda el conteo de pedidos por sucursal/horario.
+
+        // Llena el menú desplegable de sucursales con las opciones recibidas.
+        const selL = document.getElementById('selLocal');
+        selL.innerHTML = '<option value="">Seleccionar Local...</option>';
+        res.locales.forEach(l => selL.innerHTML += `<option value="${l}">${l}</option>`);
+
+        document.getElementById('controls').style.display = 'block'; // Muestra los pasos 2, 3 y 4.
+        log("Archivo cargado.");
+      }).processUpload(e.target.result, file.name); // Envía el archivo al servidor.
+    };
+    reader.readAsDataURL(file);                  // Inicia la lectura del archivo (formato Base64).
+  }
+
+  /**
+   * actualizarHoras()
+   * -----------------
+   * Cuando el usuario elige una sucursal, llena el menú de horarios mostrando
+   * solo los bloques que tienen pedidos, junto a cuántos pendientes hay en cada uno.
+   * Además, centra el mapa en la sucursal elegida.
+   */
+  function actualizarHoras() {
+    const loc = document.getElementById('selLocal').value;
+    const selH = document.getElementById('selHora'); selH.innerHTML = "";
+
+    // Por cada horario disponible en esa sucursal, agrega una opción al menú.
+    if(DATA_CONTEOS[loc]) {
+      Object.keys(DATA_CONTEOS[loc]).sort().forEach(h => {
+        selH.innerHTML += `<option value="${h}">${h} (${DATA_CONTEOS[loc][h]} ptes)</option>`;
+      });
+    }
+
+    // Centra el mapa en las coordenadas de la sucursal seleccionada.
+    const c = COORD_LOC[loc.replace('L','')];
+    if(c) map.setView([c.lat, c.lng], 13);
+  }
+
+  /**
+   * getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2)
+   * -------------------------------------------------
+   * Calcula la distancia EN LÍNEA RECTA (en kilómetros) entre dos puntos del
+   * planeta a partir de sus coordenadas. Usa la "fórmula de Haversine", que
+   * tiene en cuenta la curvatura de la Tierra.
+   * Se utiliza para estimar cuántos km recorre cada ruta.
+   */
+  function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+    var R = 6371; var dLat = deg2rad(lat2-lat1); var dLon = deg2rad(lon2-lon1);  // R = radio de la Tierra en km.
+    var a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.sin(dLon/2) * Math.sin(dLon/2);
+    var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; // Distancia final en kilómetros.
+  }
+  // Convierte grados a radianes (necesario para las funciones trigonométricas de arriba).
+  function deg2rad(deg) { return deg * (Math.PI/180) }
+
+  /**
+   * procesar()
+   * ----------
+   * ¡El corazón de la optimización! Se ejecuta al pulsar "CALCULAR RUTAS".
+   *
+   * 1. Pide al servidor los pedidos de la sucursal y horarios elegidos.
+   * 2. Reparte esos pedidos entre las rutas usando un criterio geográfico:
+   *    los ordena por ÁNGULO alrededor de la sucursal (como las agujas de un reloj)
+   *    y los divide en grupos del mismo tamaño. Así cada ruta cubre una "tajada"
+   *    geográfica, evitando que los camiones se crucen entre sí.
+   */
+  function procesar() {
+    const l = document.getElementById('selLocal').value;
+    const selH = document.getElementById('selHora');
+    // Obtiene la lista de horarios que el usuario marcó.
+    const horas = Array.from(selH.options).filter(o => o.selected).map(o => o.value);
+
+    if(horas.length === 0) return alert("Seleccione al menos un horario");
+    const n = parseInt(document.getElementById('trucks').value); // Número de rutas/móviles.
+
+    log("Optimizando rutas...");
+    // Pide los pedidos al servidor (función getOrders de Code.gs).
+    google.script.run.withSuccessHandler(res => {
+      if(res.orders.length === 0) return log("No hay pedidos.");
+      currentOrders = res.orders;                      // Guarda los pedidos recibidos.
+      const suc = COORD_LOC[l.replace('L','')];         // Coordenadas de la sucursal (punto de partida).
+
+      // Para cada pedido calcula:
+      //   - 'a'       = el ángulo respecto a la sucursal (su dirección en el "reloj").
+      //   - 'distRef' = qué tan lejos está de la sucursal (en línea recta aproximada).
+      currentOrders.forEach(p => {
+        p.a = Math.atan2(p.lat - suc.lat, p.lng - suc.lng);
+        p.distRef = Math.sqrt(Math.pow(p.lat-suc.lat, 2) + Math.pow(p.lng-suc.lng, 2));
+      });
+
+      // Ordena los pedidos por ángulo (de modo que queden agrupados los vecinos).
+      currentOrders.sort((a, b) => a.a - b.a);
+      // Calcula cuántos pedidos van por ruta y los reparte en grupos contiguos.
+      const size = Math.ceil(currentOrders.length / n);
+      currentOrders.forEach((o, i) => { o.ruta = Math.min(Math.floor(i / size) + 1, n); });
+
+      reordenarInterno();                              // Ordena los pedidos dentro de cada ruta.
+      render();                                        // Dibuja los puntos en el mapa.
+      actualizarBulkSelect();                          // Prepara el menú de movimiento masivo.
+      document.getElementById('btnSave').style.display = "flex";      // Muestra el botón Exportar.
+      document.getElementById('bulkActions').style.display = "flex";  // Muestra los controles BULK.
+      log(`Ruteo finalizado: ${currentOrders.length} pedidos.`);
+    }).getOrders(l, horas);
+  }
+
+  /**
+   * reordenarInterno()
+   * ------------------
+   * Reordena la lista de pedidos: primero por número de ruta, y dentro de cada
+   * ruta, por cercanía a la sucursal (los más cercanos primero).
+   * Los pedidos "LAT" siempre quedan al final.
+   */
+  function reordenarInterno() {
+    currentOrders.sort((a, b) => {
+        if(a.ruta === "LAT" && b.ruta !== "LAT") return 1;   // LAT va al final.
+        if(a.ruta !== "LAT" && b.ruta === "LAT") return -1;
+        if(a.ruta === "LAT" && b.ruta === "LAT") return 0;
+        // Si son de rutas distintas, ordena por ruta; si son de la misma, por distancia.
+        return (a.ruta !== b.ruta) ? a.ruta - b.ruta : a.distRef - b.distRef
+    });
+  }
+
+  /**
+   * render()
+   * --------
+   * Vuelve a dibujar TODOS los marcadores en el mapa según el estado actual.
+   * Se llama cada vez que algo cambia (se mueve un pedido, se filtra una ruta, etc.).
+   */
+  function render() {
+    // Primero borra todos los marcadores anteriores para empezar de cero.
+    markers.forEach(m => map.removeLayer(m)); markers = [];
+
+    // Dibuja el marcador especial de la SUCURSAL (ícono de tienda rosado).
+    const sucId = document.getElementById('selLocal').value.replace('L','');
+    const suc = COORD_LOC[sucId];
+    if (suc) {
+        const homeIcon = L.divIcon({
+            html: `
+              <div style="background: #d64394; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border: 3px solid white; box-shadow: 0 3px 6px rgba(0,0,0,0.4);">
+                <span class="material-icons" style="color: white; font-size: 18px;">store</span>
+              </div>`,
+            className: '', iconSize: [32, 32], iconAnchor: [16, 16]
+        });
+        const homeMarker = L.marker([suc.lat, suc.lng], {icon: homeIcon}).addTo(map).bindPopup("<b>SUCURSAL</b><br>Punto de Partida");
+        markers.push(homeMarker);
+    }
+
+    const n = parseInt(document.getElementById('trucks').value);
+    let routeCounters = {}; // Para numerar los pedidos dentro de cada ruta.
+
+    // Recorre cada pedido y crea su marcador numerado en el mapa.
+    currentOrders.forEach((o, idx) => {
+      // LÓGICA DE FILTRO: si hay un filtro activo, oculta los pedidos de otras rutas.
+      if (activeFilter !== null && o.ruta !== activeFilter) return;
+
+      // Calcula el número de secuencia del pedido dentro de su ruta (1, 2, 3...).
+      if (!routeCounters[o.ruta]) routeCounters[o.ruta] = 0;
+      routeCounters[o.ruta]++;
+      let secuencia = routeCounters[o.ruta];
+
+      // Elige el color del marcador según la ruta a la que pertenece.
+      let col = (o.ruta === "LAT") ? COLOR_LAT : colors[(o.ruta - 1) % colors.length];
+
+      // Arma las opciones del menú desplegable del popup (para cambiar de ruta a mano).
+      let opts = "";
+      for(let i=1; i<=n; i++) opts += `<option value="${i}" ${o.ruta==i?'selected':''}>Ruta ${i}</option>`;
+      opts += `<option value="LAT" ${o.ruta==="LAT"?'selected':''}>LAT (Lateral)</option>`;
+
+      // Si el pedido está seleccionado, le pone un borde negro destacado.
+      let isChecked = selectedOrdersIndices.has(idx) ? "checked" : "";
+      let borderStyle = isChecked ? "border: 2px solid #000; transform: scale(1.1);" : "";
+
+      // Contenido de la ventanita (popup) que aparece al hacer clic en el pedido.
+      const popupContent = `
+        <div class="popup-check">
+            <input type="checkbox" id="chk_${idx}" onchange="toggleSelection(${idx})" ${isChecked}>
+            <label for="chk_${idx}" style="color:#000; margin:0; cursor:pointer;">Seleccionar</label>
+        </div>
+        <b>${o.cliente}</b><br>${o.direccion}<br>
+        <div style="font-size:10px; color:#555; margin-bottom:5px;">Ruta: ${o.ruta} | Pos: ${secuencia} | Bultos: ${o.bultos}</div>
+        <select class="popup-select" onchange="cambiarRuta(${idx}, this.value)">${opts}</select>
+      `;
+
+      // Crea el ícono circular numerado con el color de su ruta.
+      const numberIcon = L.divIcon({
+        className: '',
+        html: `<div class="number-icon" style="background-color: ${col}; ${borderStyle}">${secuencia}</div>`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+      });
+
+      // Coloca el marcador en el mapa, guardando su índice (idx) para identificarlo luego.
+      const m = L.marker([o.lat, o.lng], {
+          icon: numberIcon,
+          orderIndex: idx
+      }).addTo(map).bindPopup(popupContent);
+
+      markers.push(m);
+    });
+
+    // La PRIMERA vez que se dibujan los pedidos, ajusta el zoom para que se vean todos.
+    if(markers.length > 0 && !window.hasZoomed) {
+        map.fitBounds(new L.featureGroup(markers).getBounds(), {padding: [50, 50]});
+        window.hasZoomed = true;
+    }
+    updateLegend(n); // Actualiza las tarjetas de estadísticas de la barra inferior.
+  }
+
+  /**
+   * toggleSelection(idx)
+   * --------------------
+   * Marca o desmarca un pedido (al usar la casilla del popup).
+   * Si estaba seleccionado lo quita, y si no, lo agrega.
+   */
+  window.toggleSelection = function(idx) {
+    if(selectedOrdersIndices.has(idx)) selectedOrdersIndices.delete(idx);
+    else selectedOrdersIndices.add(idx);
+    document.getElementById('selCount').innerText = selectedOrdersIndices.size;
+    render();
+  };
+
+  /**
+   * actualizarBulkSelect()
+   * ----------------------
+   * Llena el menú "mover a la ruta..." de la barra inferior con todas las
+   * rutas disponibles (Ruta 1, Ruta 2, ... y LAT).
+   */
+  function actualizarBulkSelect() {
+      const n = parseInt(document.getElementById('trucks').value);
+      const sel = document.getElementById('bulkRouteTarget');
+      sel.innerHTML = '<option value="LAT">LAT</option>';
+      for(let i=1; i<=n; i++) sel.innerHTML += `<option value="${i}">Ruta ${i}</option>`;
+  }
+
+  /**
+   * aplicarCambioMasivo()
+   * ---------------------
+   * Mueve DE UNA SOLA VEZ todos los pedidos seleccionados a la ruta elegida
+   * en el menú de la barra inferior. Útil para reorganizar muchos a la vez.
+   */
+  function aplicarCambioMasivo() {
+    if(selectedOrdersIndices.size === 0) return alert("Selecciona puntos en el mapa primero.");
+    const target = document.getElementById('bulkRouteTarget').value;
+    const finalTarget = (target === "LAT") ? "LAT" : parseInt(target);
+    // Asigna la ruta destino a cada pedido seleccionado.
+    selectedOrdersIndices.forEach(idx => { if(currentOrders[idx]) currentOrders[idx].ruta = finalTarget; });
+    limpiarSeleccion(); // Borra la selección actual.
+    reordenarInterno(); // Reordena.
+    render();           // Redibuja.
+    log("Reasignación completada.");
+  }
+
+  /**
+   * limpiarSeleccion()
+   * ------------------
+   * Borra todos los pedidos que estaban seleccionados y reinicia el contador.
+   */
+  function limpiarSeleccion() {
+    selectedOrdersIndices.clear();
+    document.getElementById('selCount').innerText = "0";
+    render();
+  }
+
+  /**
+   * cambiarRuta(idx, val)
+   * ---------------------
+   * Cambia UN solo pedido de ruta (cuando el usuario usa el menú dentro del popup).
+   */
+  window.cambiarRuta = function(idx, val) {
+    currentOrders[idx].ruta = (val === "LAT") ? "LAT" : parseInt(val);
+    reordenarInterno();
+    render();
+  };
+
+  /**
+   * updateLegend(n)
+   * ---------------
+   * Genera las tarjetas de estadísticas de la barra inferior, una por cada ruta.
+   * Para cada ruta calcula y muestra:
+   *   - cantidad de pedidos (pts) y total de bultos,
+   *   - distancia y tiempo estimado de recorrido,
+   *   - alerta de cuántos pedidos están "sin armar" (pendientes).
+   * Además, al hacer clic en una tarjeta se filtra el mapa para ver solo esa ruta.
+   */
+  function updateLegend(n) {
+    const container = document.getElementById('statsContainer');
+    container.innerHTML = "";
+    const speedKmH = parseFloat(document.getElementById('speed').value);     // Velocidad configurada.
+    const serviceMin = parseFloat(document.getElementById('serviceTime').value); // Minutos por entrega.
+    const routes = {};                                                        // Agrupa los pedidos por ruta.
+    const sucId = document.getElementById('selLocal').value.replace('L','');
+    const origin = COORD_LOC[sucId];                                          // Sucursal = punto de partida.
+
+    // Agrupa cada pedido dentro de su ruta correspondiente.
+    currentOrders.forEach(o => { if(!routes[o.ruta]) routes[o.ruta] = []; routes[o.ruta].push(o); });
+
+    // Lista de rutas a mostrar: 1, 2, ... n, y al final "LAT".
+    let keys = [];
+    for(let i=1; i<=n; i++) keys.push(i);
+    keys.push("LAT");
+
+    keys.forEach(k => {
+      let pts = routes[k] || [];   // Pedidos de esta ruta.
+      let count = pts.length;       // Cuántos pedidos tiene.
+      if (count === 0 && k === "LAT") return; // Si LAT está vacía, no muestra su tarjeta.
+
+      // Suma total de bultos y de pendientes (sin armar) de la ruta.
+      let totalBultos = pts.reduce((sum, p) => sum + (p.bultos || 0), 0);
+      let totalSinArmar = pts.reduce((sum, p) => sum + (p.sinArmar || 0), 0);
+
+      // Calcula la distancia total recorriendo los puntos en orden, partiendo desde la sucursal.
+      let totalKm = 0;
+      if (count > 0 && origin && k !== "LAT") {
+        totalKm += getDistanceFromLatLonInKm(origin.lat, origin.lng, pts[0].lat, pts[0].lng); // Sucursal -> 1er punto.
+        for(let m=0; m < pts.length - 1; m++) totalKm += getDistanceFromLatLonInKm(pts[m].lat, pts[m].lng, pts[m+1].lat, pts[m+1].lng); // Entre punto y punto.
+        totalKm = totalKm * 1.4; // Factor 1.4 para aproximar la distancia real por calles (no en línea recta).
+      }
+
+      // Calcula el tiempo estimado de la ruta = tiempo de viaje + tiempo de las entregas.
+      let timeStr = "";
+      if (k === "LAT") { timeStr = "Lateral"; }
+      else {
+          let travelTime = (totalKm / speedKmH) * 60; // Tiempo de manejo en minutos.
+          let totalService = count * serviceMin;       // Tiempo de todas las entregas.
+          let totalMinutes = Math.round(travelTime + totalService);
+          let h = Math.floor(totalMinutes / 60);       // Horas.
+          let m = totalMinutes % 60;                    // Minutos restantes.
+          timeStr = `${h}h ${m}m`;
+      }
+
+      // Color y nombre de la ruta para la tarjeta.
+      let bg = (k === "LAT") ? COLOR_LAT : colors[(k-1)%colors.length];
+      let name = (k === "LAT") ? "LAT" : `RUTA ${k}`;
+
+      // Crea la tarjeta visual (badge).
+      const badge = document.createElement('div');
+      badge.className = 'route-badge';
+      badge.style.borderLeftColor = bg;
+      badge.title = "Clic para filtrar/desfiltrar";
+
+      // Si hay un filtro activo en OTRA ruta, atenúa esta tarjeta (opacidad baja).
+      if (activeFilter !== null && activeFilter !== k) {
+        badge.style.opacity = "0.3";
+      } else {
+        badge.style.opacity = "1";
+      }
+
+      // Al hacer clic en la tarjeta, activa o quita el filtro de esa ruta en el mapa.
+      badge.onclick = function() {
+        if (activeFilter === k) {
+            activeFilter = null;
+            log("Mostrando todas las rutas.");
+        } else {
+            activeFilter = k;
+            log("Filtrando vista: " + name);
+        }
+        render();
+      };
+
+      // Alerta visual de pendientes: verde "OK" si está todo armado, rojo con ⚠ si hay pendientes.
+      let alertIcon = totalSinArmar > 0 ? `<span style="color:#ff4444; font-weight:bold;">⚠ ${totalSinArmar} pend.</span>` : `<span style="color:#4caf50; font-weight:bold;">✔ OK</span>`;
+
+      // Inserta el contenido de la tarjeta: nombre, datos, tiempo y alerta.
+      badge.innerHTML = `
+        <span class="r-name" style="color:${bg}">${name}</span>
+        <span class="r-data">${count} pts | ${totalBultos} 📦</span>
+        <span class="r-time">${timeStr} | ${alertIcon}</span>
+      `;
+      container.appendChild(badge);
+    });
+  }
+
+  /**
+   * descargar()
+   * -----------
+   * Se ejecuta al pulsar "EXPORTAR EXCEL".
+   * Envía al servidor las rutas ya organizadas (función saveFinalRouting de Code.gs),
+   * recibe el archivo Excel generado y lo descarga al computador del usuario.
+   */
+  function descargar() {
+    log("Generando Excel...");
+    const selH = document.getElementById('selHora');
+    const horas = Array.from(selH.options).filter(o => o.selected).map(o => o.value);
+
+    google.script.run.withSuccessHandler(res => {
+      if(res.status === 'error') return alert("Error: " + res.message);
+
+      // El servidor devuelve el archivo en texto Base64; aquí lo convertimos de vuelta
+      // a datos binarios para poder descargarlo como un .xlsx real.
+      const byteCharacters = atob(res.base64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) byteNumbers[i] = byteCharacters.charCodeAt(i);
+      const blob = new Blob([new Uint8Array(byteNumbers)], {type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+
+      // Crea un enlace temporal invisible y simula un clic para iniciar la descarga.
+      const link = document.createElement('a');
+      link.href = window.URL.createObjectURL(blob);
+      link.download = res.fileName;
+      link.click();
+      log("Descarga lista.");
+    }).saveFinalRouting(currentOrders, document.getElementById('selLocal').value, horas); // Envía las rutas al servidor.
+  }
+</script>
+</body>
+</html>
