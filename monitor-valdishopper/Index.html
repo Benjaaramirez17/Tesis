@@ -471,10 +471,17 @@
                 })
                 .withFailureHandler(function(error) {
                     delete imageCache[img.id]; // se reintenta en la próxima vuelta
-                    if (loaderEl) {
-                        loaderEl.style.color = 'red';
-                        loaderEl.innerText = 'No se pudo cargar: ' + error.message;
-                    }
+                    console.error('getImageData falló para ' + img.name, error);
+                    // Último recurso: enlace directo (funciona si la imagen está compartida)
+                    imgEl.onerror = function() {
+                        imgEl.removeAttribute('src');
+                        if (loaderEl) {
+                            loaderEl.style.color = 'red';
+                            loaderEl.innerText = 'No se pudo cargar "' + img.name + '": ' + error.message;
+                        }
+                    };
+                    imgEl.onload = function() { if (loaderEl) loaderEl.remove(); };
+                    imgEl.src = 'https://lh3.googleusercontent.com/d/' + img.id + '=w1920';
                 })
                 .getImageData(img.id);
         }

@@ -46,9 +46,40 @@ function getImagesFromFolder() {
 // Devuelve la imagen como data URL (base64). Así el navegador no depende de
 // que el archivo esté compartido públicamente ni de las cookies de Google,
 // que es lo que hacía fallar el enlace drive.google.com/thumbnail.
+// Primero pide a Drive una versión reducida (máx. 1600 px) para que el envío
+// sea liviano; si no se puede, manda el archivo original.
 function getImageData(id) {
+  try {
+    var headers = { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() };
+    var meta = JSON.parse(UrlFetchApp.fetch(
+      'https://www.googleapis.com/drive/v3/files/' + id + '?fields=thumbnailLink',
+      { headers: headers }).getContentText());
+
+    if (meta.thumbnailLink) {
+      var url = meta.thumbnailLink.replace(/=s\d+$/, '=s1600');
+      var resp = UrlFetchApp.fetch(url, { headers: headers, muteHttpExceptions: true });
+      if (resp.getResponseCode() === 200) {
+        var thumb = resp.getBlob();
+        return 'data:' + (thumb.getContentType() || 'image/jpeg') + ';base64,' + Utilities.base64Encode(thumb.getBytes());
+      }
+    }
+  } catch (e) {
+    console.warn('Miniatura no disponible para ' + id + ': ' + e);
+  }
+
   var blob = DriveApp.getFileById(id).getBlob();
   return 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes());
+}
+
+// Ejecuta esta función desde el editor (botón ▶) para revisar el carrusel:
+// muestra en el registro cuántas imágenes ve y si la primera se puede leer.
+function probarCarrusel() {
+  var images = getImagesFromFolder();
+  console.log('Imágenes encontradas: ' + images.length + ' -> ' + images.map(function(i) { return i.name; }).join(', '));
+  if (images.length) {
+    var data = getImageData(images[0].id);
+    console.log('Primera imagen OK, tamaño enviado: ' + Math.round(data.length / 1024) + ' KB');
+  }
 }
 
 function uploadImage(base64Data, filename) {
