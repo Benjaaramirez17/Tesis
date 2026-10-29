@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --navy:#0b1f4b; --pink:#d63f8c; --bg:#eef0f5; --line:#e3e7f0; --soft:#f7f9fd; --txt:#1c2340; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); font-family:Inter, Arial, sans-serif; color:var(--txt); }
+    .wrap { max-width:820px; margin:0 auto; padding:16px; }
+
+    .tabs { display:flex; gap:6px; margin-bottom:12px; }
+    .tab { flex:1; padding:12px; border:0; border-radius:8px; background:#fff; color:var(--navy);
+           font-weight:800; font-size:14px; cursor:pointer; letter-spacing:.5px; }
+    .tab.active { background:var(--navy); color:#fff; }
+    .panel { display:none; } .panel.active { display:block; }
+
+    .card { background:#fff; border-radius:4px; overflow:hidden; margin-bottom:14px; }
+    .header { background:var(--navy); color:#fff; display:flex; justify-content:space-between;
+              align-items:center; padding:16px 18px; font-weight:800; font-size:17px; }
+    .bar { background:var(--pink); color:#fff; text-align:center; font-weight:800; font-size:14px;
+           padding:10px; letter-spacing:.3px; }
+    .row { display:flex; justify-content:space-between; align-items:center; padding:9px 18px;
+           border-bottom:1px solid var(--line); }
+    .row:nth-child(odd) { background:var(--soft); }
+    .row label { font-weight:700; }
+    .row input { width:72px; height:34px; text-align:center; font-weight:800; font-size:15px;
+                 border:1px solid #d4d9e6; border-radius:8px; color:var(--navy); }
+    .row.total { background:#fde8f2 !important; font-weight:800; }
+
+    .chips { display:flex; flex-wrap:wrap; justify-content:center; gap:8px; padding:12px 18px 4px; }
+    .chip { background:#eaf0ff; border:1px solid #cdd8f5; border-radius:20px; padding:7px 10px 7px 16px;
+            font-weight:600; display:flex; align-items:center; gap:8px; }
+    .chip button { border:0; background:none; color:#8a93ad; cursor:pointer; font-size:16px; }
+    .add { display:flex; gap:8px; padding:8px 18px 14px; }
+    select, textarea { width:100%; border:1px solid #d4d9e6; border-radius:8px; padding:8px 10px;
+                       font-family:inherit; font-size:14px; background:var(--soft); }
+    .btn { border:0; border-radius:8px; background:var(--navy); color:#fff; font-weight:800;
+           padding:10px 16px; cursor:pointer; font-size:14px; }
+    .btn.pink { background:var(--pink); }
+    .btn:disabled { opacity:.5; cursor:default; }
+    .actions { display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; }
+    .pad { padding:14px 18px; }
+
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th { background:var(--soft); color:var(--navy); font-weight:800; padding:8px 6px; text-align:center;
+         border-bottom:1px solid var(--line); white-space:nowrap; }
+    td { padding:8px 6px; text-align:center; border-bottom:1px solid var(--line); white-space:nowrap; }
+    td:first-child, th:first-child { text-align:left; padding-left:14px; font-weight:700; }
+    td.prom { font-weight:800; color:var(--navy); background:#fde8f2; }
+    .scroll { overflow-x:auto; }
+    .muted { color:#7a829b; font-size:12px; }
+    .up { color:#178a4a; font-weight:700; } .down { color:#c0392b; font-weight:700; }
+    .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--navy);
+             color:#fff; padding:10px 18px; border-radius:8px; display:none; font-weight:600; }
+    details summary { cursor:pointer; padding:10px 18px; font-weight:700; color:var(--navy); }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="tabs">
+    <button class="tab active" data-tab="dot">DOTACIÓN</button>
+    <button class="tab" data-tab="ind">INDICADORES</button>
+  </div>
+
+  <!-- ===================== DOTACIÓN ===================== -->
+  <div id="dot" class="panel active">
+    <div class="card">
+      <div class="header"><span id="titulo">REPORTE DOTACIONES</span><span id="fecha"></span></div>
+
+      <div class="bar">COORDINADOR EN SALA</div>
+      <div class="chips" id="chips"></div>
+      <div class="add">
+        <select id="selCoord"></select>
+        <button class="btn" onclick="agregarCoord()">+</button>
+      </div>
+
+      <div id="secciones"></div>
+
+      <div class="bar">TOTAL DOTACIÓN</div>
+      <div class="row total"><label>AM:</label><span id="totAm">0</span></div>
+      <div class="row total"><label>PM:</label><span id="totPm">0</span></div>
+
+      <div class="bar">NOVEDADES</div>
+      <div class="pad">
+        <textarea id="novedades" rows="3" placeholder="Ej: Turno partido, cambio de rol, ausencias..."></textarea>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn pink" onclick="copiarReporte()">Copiar reporte</button>
+      <button class="btn" id="btnGuardar" onclick="guardar()">Guardar</button>
+    </div>
+  </div>
+
+  <!-- ===================== INDICADORES ===================== -->
+  <div id="ind" class="panel">
+    <div class="card">
+      <div class="header"><span id="tituloInd">INDICADORES</span>
+        <button class="btn pink" onclick="cargarIndicadores()">↻ Actualizar</button></div>
+
+      <div class="bar" id="barDia">PROMEDIO DEL DÍA</div>
+      <div class="scroll" id="tablaDia"><p class="pad muted">Cargando…</p></div>
+      <details id="detHoras"><summary>Ver detalle por hora</summary>
+        <div class="scroll" id="tablaHoras"></div></details>
+    </div>
+
+    <div class="card">
+      <div class="bar" id="barAnt">SEMANA ANTERIOR</div>
+      <div class="scroll" id="tablaAnt"><p class="pad muted">Cargando…</p></div>
+    </div>
+
+    <div class="card">
+      <div class="bar" id="barAct">SEMANA EN CURSO</div>
+      <div class="scroll" id="tablaAct"><p class="pad muted">Cargando…</p></div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+  let CFG = null;
+  const state = { coordinadores: [], dotacion: {}, novedades: '' };
+  const KEY = 'dotacion_borrador';
+
+  // ---------- Tabs ----------
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+    document.querySelectorAll('.tab, .panel').forEach(e => e.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById(t.dataset.tab).classList.add('active');
+    if (t.dataset.tab === 'ind' && !window._indCargado) cargarIndicadores();
+  });
+
+  // ---------- Init ----------
+  google.script.run.withSuccessHandler(cfg => {
+    CFG = cfg;
+    document.getElementById('titulo').textContent = 'REPORTE DOTACIONES L' + cfg.local;
+    document.getElementById('tituloInd').textContent = 'INDICADORES L' + cfg.local;
+    document.getElementById('fecha').textContent = cfg.hoy;
+    cfg.dotaciones.forEach(d => state.dotacion[d] = { am: 0, pm: 0 });
+    cargarBorrador();
+    renderSecciones();
+    renderCoords();
+  }).withFailureHandler(err).getConfig();
+
+  function renderSecciones() {
+    const cont = document.getElementById('secciones');
+    cont.innerHTML = '';
+    CFG.dotaciones.forEach(d => {
+      cont.insertAdjacentHTML('beforeend', `
+        <div class="bar">${d.toUpperCase()}</div>
+        <div class="row"><label>AM:</label><input type="number" min="0" data-d="${d}" data-t="am" value="${state.dotacion[d].am}"></div>
+        <div class="row"><label>PM:</label><input type="number" min="0" data-d="${d}" data-t="pm" value="${state.dotacion[d].pm}"></div>`);
+    });
+    cont.querySelectorAll('input').forEach(i => {
+      i.onfocus = () => i.select();
+      i.oninput = () => { state.dotacion[i.dataset.d][i.dataset.t] = Number(i.value) || 0; actualizarTotales(); };
+    });
+    document.getElementById('novedades').value = state.novedades;
+    document.getElementById('novedades').oninput = e => { state.novedades = e.target.value; guardarBorrador(); };
+    actualizarTotales();
+  }
+
+  function renderCoords() {
+    const chips = document.getElementById('chips');
+    chips.innerHTML = state.coordinadores.length ? '' : '<span class="muted">Sin coordinadores asignados</span>';
+    state.coordinadores.forEach((c, i) => chips.insertAdjacentHTML('beforeend',
+      `<span class="chip">${c}<button title="Quitar" onclick="quitarCoord(${i})">×</button></span>`));
+    const sel = document.getElementById('selCoord');
+    sel.innerHTML = '<option value="">— agregar coordinador —</option>' +
+      CFG.coordinadores.filter(c => !state.coordinadores.includes(c))
+        .map(c => `<option>${c}</option>`).join('');
+    guardarBorrador();
+  }
+  function agregarCoord() {
+    const v = document.getElementById('selCoord').value;
+    if (v) { state.coordinadores.push(v); renderCoords(); }
+  }
+  function quitarCoord(i) { state.coordinadores.splice(i, 1); renderCoords(); }
+
+  function totales() {
+    let am = 0, pm = 0;
+    CFG.dotaciones.forEach(d => { am += state.dotacion[d].am; pm += state.dotacion[d].pm; });
+    return { am, pm };
+  }
+  function actualizarTotales() {
+    const t = totales();
+    document.getElementById('totAm').textContent = t.am;
+    document.getElementById('totPm').textContent = t.pm;
+    guardarBorrador();
+  }
+
+  // Borrador local (por si se recarga la página)
+  function guardarBorrador() {
+    try { localStorage.setItem(KEY, JSON.stringify(Object.assign({ fecha: CFG.hoy }, state))); } catch (e) {}
+  }
+  function cargarBorrador() {
+    try {
+      const b = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (!b || b.fecha !== CFG.hoy) return;
+      state.coordinadores = (b.coordinadores || []).filter(c => CFG.coordinadores.includes(c));
+      state.novedades = b.novedades || '';
+      CFG.dotaciones.forEach(d => { if (b.dotacion && b.dotacion[d]) state.dotacion[d] = b.dotacion[d]; });
+    } catch (e) {}
+  }
+
+  function guardar() {
+    const btn = document.getElementById('btnGuardar');
+    btn.disabled = true;
+    google.script.run.withSuccessHandler(r => {
+      btn.disabled = false; toast('Reporte guardado ✔ (' + r.fecha + ')');
+    }).withFailureHandler(e => { btn.disabled = false; err(e); }).guardarDotacion(state);
+  }
+
+  function copiarReporte() {
+    const t = totales();
+    let txt = `*REPORTE DOTACIONES L${CFG.local}* - ${CFG.hoy}\n\n`;
+    txt += `*Coordinador en sala:* ${state.coordinadores.join(', ') || '-'}\n\n`;
+    CFG.dotaciones.forEach(d => {
+      txt += `*${d}*\nAM: ${state.dotacion[d].am}\nPM: ${state.dotacion[d].pm}\n\n`;
+    });
+    txt += `*Total*\nAM: ${t.am}\nPM: ${t.pm}\n`;
+    if (state.novedades.trim()) txt += `\n*Novedades:* ${state.novedades.trim()}`;
+    navigator.clipboard.writeText(txt).then(() => toast('Reporte copiado al portapapeles'),
+      () => { prompt('Copia el reporte:', txt); });
+  }
+
+  // ---------- Indicadores ----------
+  function fmt(v, pct) {
+    if (v === null || v === undefined || isNaN(v)) return '–';
+    return pct ? (v * 100).toLocaleString('es-CL', { maximumFractionDigits: 1 }) + '%'
+               : v.toLocaleString('es-CL', { maximumFractionDigits: 2 });
+  }
+
+  function cargarIndicadores() {
+    window._indCargado = true;
+    google.script.run.withSuccessHandler(renderDia).withFailureHandler(e => {
+      document.getElementById('tablaDia').innerHTML = `<p class="pad down">${e.message}</p>`;
+    }).getIndicadoresDia();
+    google.script.run.withSuccessHandler(renderSemanas).withFailureHandler(e => {
+      document.getElementById('tablaAnt').innerHTML = `<p class="pad down">${e.message}</p>`;
+      document.getElementById('tablaAct').innerHTML = '';
+    }).getConsolidadoSemanal();
+  }
+
+  function renderDia(d) {
+    document.getElementById('barDia').textContent =
+      'PROMEDIO DEL DÍA · ' + (d.fecha || 'sin datos') + (d.esHoy ? '' : ' (último disponible)');
+    if (!d.indicadores.length) {
+      document.getElementById('tablaDia').innerHTML = '<p class="pad muted">Sin datos para el local.</p>';
+      document.getElementById('tablaHoras').innerHTML = '';
+      return;
+    }
+    let h = '<table><tr><th>Indicador</th><th>Promedio</th><th>Último</th><th>Mín</th><th>Máx</th><th>Reg.</th></tr>';
+    d.indicadores.forEach(i => {
+      h += `<tr><td>${i.indicador}</td><td class="prom">${fmt(i.promedio, i.pct)}</td>
+        <td>${fmt(i.ultimo, i.pct)} <span class="muted">${i.ultimaHora}</span></td>
+        <td>${fmt(i.min, i.pct)}</td><td>${fmt(i.max, i.pct)}</td><td>${i.registros}</td></tr>`;
+    });
+    h += `</table><p class="pad muted">Actualizado ${d.actualizado} · se refresca cada 5 min</p>`;
+    document.getElementById('tablaDia').innerHTML = h;
+
+    let t = '<table><tr><th>Indicador</th>' + d.horas.map(x => `<th>${x}</th>`).join('') + '<th>Prom.</th></tr>';
+    d.indicadores.forEach(i => {
+      t += `<tr><td>${i.indicador}</td>` + i.porHora.map(v => `<td>${fmt(v, i.pct)}</td>`).join('') +
+           `<td class="prom">${fmt(i.promedio, i.pct)}</td></tr>`;
+    });
+    document.getElementById('tablaHoras').innerHTML = t + '</table>';
+  }
+
+  function tablaSemana(s, comparar) {
+    if (!s.indicadores.length) return '<p class="pad muted">Sin datos en el Histórico para este período.</p>';
+    const base = {};
+    (comparar ? comparar.indicadores : []).forEach(i => base[i.indicador] = i.promedio);
+    let h = '<table><tr><th>Indicador</th>' + s.dias.map(x => `<th>${x}</th>`).join('') +
+            '<th>Promedio</th>' + (comparar ? '<th>vs Sem. ant.</th>' : '') + '</tr>';
+    s.indicadores.forEach(i => {
+      h += `<tr><td>${i.indicador}</td>` + i.porDia.map(v => `<td>${fmt(v, i.pct)}</td>`).join('') +
+           `<td class="prom">${fmt(i.promedio, i.pct)}</td>`;
+      if (comparar) {
+        const b = base[i.indicador];
+        if (b === undefined || b === null || i.promedio === null) h += '<td>–</td>';
+        else {
+          const diff = i.promedio - b;
+          const txt = i.pct ? (diff * 100).toLocaleString('es-CL', { maximumFractionDigits: 1 }) + ' pp'
+                            : (b ? (diff / Math.abs(b) * 100).toLocaleString('es-CL', { maximumFractionDigits: 1 }) + '%'
+                                 : fmt(diff, false));
+          h += `<td class="${diff >= 0 ? 'up' : 'down'}">${diff >= 0 ? '▲ +' : '▼ '}${txt}</td>`;
+        }
+      }
+      h += '</tr>';
+    });
+    return h + '</table>';
+  }
+
+  function renderSemanas(r) {
+    document.getElementById('barAnt').textContent = 'SEMANA ANTERIOR · ' + r.anterior.titulo;
+    document.getElementById('barAct').textContent = 'SEMANA EN CURSO · ' + r.actual.titulo;
+    document.getElementById('tablaAnt').innerHTML = tablaSemana(r.anterior);
+    document.getElementById('tablaAct').innerHTML = tablaSemana(r.actual, r.anterior);
+  }
+
+  setInterval(() => { if (window._indCargado) cargarIndicadores(); }, 5 * 60 * 1000);
+
+  // ---------- Utils ----------
+  function toast(m) {
+    const t = document.getElementById('toast');
+    t.textContent = m; t.style.display = 'block';
+    setTimeout(() => t.style.display = 'none', 2500);
+  }
+  function err(e) { toast('Error: ' + (e.message || e)); }
+</script>
+</body>
+</html>
