@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <title>Valdishopper - Monitor Visual</title>
+    <style>
+        :root {
+            --dark-blue: #0B1C49;
+            --pink: #D64294;
+            --magenta: #C01877;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--dark-blue);
+            color: white;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .header-bar {
+            background: linear-gradient(90deg, var(--magenta) 0%, var(--pink) 100%);
+            height: 8px;
+            width: 100%;
+        }
+        .header-content {
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            z-index: 10;
+            background-color: var(--dark-blue);
+        }
+        .header-titles h1 {
+            color: var(--pink);
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            margin: 0 0 5px 0;
+            font-size: 1.6rem;
+        }
+        .header-titles h2 {
+            color: white;
+            font-weight: 300;
+            font-size: 0.9rem;
+            margin: 0;
+            opacity: 0.8;
+        }
+        .update-time {
+            font-size: 0.85rem;
+            background-color: rgba(255,255,255,0.1);
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-weight: 500;
+            border: 1px solid var(--magenta);
+            white-space: nowrap;
+        }
+
+        .content-wrapper {
+            display: flex;
+            flex-direction: row;
+            flex-grow: 1;
+            width: 100%;
+            overflow: hidden;
+            min-height: 0;
+        }
+
+        /* BARRA LATERAL IZQUIERDA (QR) */
+        .sidebar {
+            width: 320px;
+            flex-shrink: 0;
+            background-color: rgba(0, 0, 0, 0.25);
+            border-right: 2px solid var(--magenta);
+            padding: 25px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+        .sidebar h3 {
+            color: var(--pink);
+            margin-top: 0;
+            text-align: center;
+            font-size: 1.4rem;
+            letter-spacing: 1px;
+        }
+        .qr-box {
+            width: 80%;
+            min-height: 150px;
+            background-color: white;
+            border-radius: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 10px;
+            box-sizing: border-box;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            transition: all 0.3s ease;
+        }
+        .qr-box img {
+            max-width: 100%;
+            max-height: 250px;
+            object-fit: contain;
+            transition: opacity 0.3s ease;
+        }
+        .paste-zone {
+            width: 100%;
+            border: 2px dashed var(--pink);
+            border-radius: 8px;
+            padding: 12px 10px;
+            text-align: center;
+            background-color: rgba(192, 24, 119, 0.1);
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 80px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .paste-zone:hover, .paste-zone:focus {
+            background-color: rgba(214, 66, 148, 0.3);
+            border-color: white;
+            outline: none;
+        }
+        .paste-text { font-size: 0.9rem; color: #fff; line-height: 1.2; margin: 0; }
+        .paste-text strong { color: var(--pink); font-size: 1.1rem; display: inline-block; margin-top: 2px; }
+        .paste-text span { font-size: 0.75rem; color: #ccc; display: block; margin-top: 3px; }
+        #upload-status { margin-top: 10px; font-size: 0.9rem; text-align: center; min-height: 35px; font-weight: bold; width: 100%; word-wrap: break-word; }
+
+        /* SECCIÓN CENTRAL (CARRUSEL) */
+        .carousel-section {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            min-width: 0;
+            position: relative;
+        }
+        .carousel-container {
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            padding: 20px;
+            background-color: #071233;
+            overflow: hidden;
+        }
+        .slide {
+            position: absolute;
+            inset: 20px;
+            opacity: 0;
+            transition: opacity 1s ease-in-out;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .slide.active { opacity: 1; z-index: 2; }
+        .slide img {
+            max-width: 100%;
+            max-height: calc(100% - 70px);
+            object-fit: contain;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.6);
+            border: 2px solid var(--magenta);
+        }
+        .slide img:not([src]) { display: none; }
+        .slide-title {
+            margin-top: 15px;
+            font-size: 1.5rem;
+            color: var(--pink);
+            font-weight: bold;
+            background-color: rgba(11, 28, 73, 0.8);
+            padding: 8px 20px;
+            border-radius: 20px;
+            border: 1px solid var(--magenta);
+        }
+        .progress-bar-container { height: 5px; background-color: rgba(255,255,255,0.1); width: 100%; }
+        .progress-bar { height: 100%; background-color: var(--pink); width: 0%; }
+        .loader { color: var(--pink); font-size: 1.2rem; animation: pulse 1.5s infinite; text-align: center; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+        /* BARRA LATERAL DERECHA: mitad asignados / mitad por asignar */
+        .right-sidebar {
+            width: 380px;
+            flex-shrink: 0;
+            background-color: rgba(0, 0, 0, 0.25);
+            border-left: 2px solid var(--magenta);
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        .panel {
+            flex: 1 1 0;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            background: linear-gradient(135deg, rgba(11,28,73,0.8) 0%, rgba(0,0,0,0.4) 100%);
+            border: 1px solid rgba(214, 66, 148, 0.3);
+            border-radius: 8px;
+            padding: 12px;
+        }
+        .panel-body {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--magenta) transparent;
+        }
+        .section-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 8px;
+            flex-shrink: 0;
+        }
+        .section-title { color: var(--pink); font-size: 1.05rem; font-weight: 600; text-transform: uppercase; }
+        .badge-count { background-color: var(--magenta); color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.85rem; font-weight: bold; }
+
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 8px 12px; margin-bottom: 6px; border-radius: 6px;
+            display: flex; justify-content: space-between; align-items: center;
+            border-left: 4px solid var(--pink);
+        }
+        .card.priority-high { border-left-color: var(--magenta); background-color: rgba(192, 24, 119, 0.15); }
+        .card.priority-medium { border-left-color: var(--pink); }
+        .shopper-name { font-weight: 600; font-size: 0.95rem; text-transform: capitalize; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px; }
+
+        .priority-badge { font-size: 0.7rem; padding: 3px 6px; border-radius: 4px; font-weight: bold; flex-shrink: 0; }
+        .badge-high { background: var(--magenta); color: white; }
+        .badge-medium { background: var(--pink); color: white; }
+        .badge-low { background: rgba(255,255,255,0.2); color: #ccc; }
+
+        .recent-item {
+            font-size: 0.9rem; margin-bottom: 6px; display: flex; align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; color: #ddd;
+        }
+        .recent-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+        .latest-item {
+            background-color: rgba(214, 66, 148, 0.15);
+            border-radius: 4px; padding: 6px;
+            border: 1px solid rgba(214, 66, 148, 0.4);
+        }
+        .new-tag { background-color: var(--pink); color: white; font-size: 0.6rem; padding: 2px 4px; border-radius: 3px; margin-right: 6px; font-weight: bold; }
+        .time-pill { background: var(--magenta); color: white; font-size: 0.7rem; padding: 2px 5px; border-radius: 3px; margin-right: 8px; font-weight: bold; }
+        .recent-name { flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px; text-transform: capitalize; }
+        .sg-code { color: #ffb5d4; font-family: monospace; font-weight: bold; }
+        .empty-msg { text-align: center; padding: 20px 10px; color: #aaa; }
+        .empty-msg h3 { color: var(--pink); margin: 0 0 6px 0; }
+    </style>
+</head>
+<body>
+    <div class="header-bar"></div>
+    <div class="header-content">
+        <div class="header-titles">
+            <h1>Valdishopper</h1>
+            <h2>Monitor de Estándares Operativos & Flujo de Despachos</h2>
+        </div>
+        <div class="update-time" id="update-time">Iniciando sistemas...</div>
+    </div>
+
+    <div class="content-wrapper">
+        <!-- BARRA LATERAL IZQUIERDA (QR Y PANTALLAZOS) -->
+        <div class="sidebar">
+            <h3>Evidencia</h3>
+            <div class="qr-box">
+                <img id="qr-image" src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=Amida" alt="Código QR Amida">
+            </div>
+            <div id="paste-zone" class="paste-zone" tabindex="0">
+                <div class="paste-text">
+                    Haz clic aquí y presiona <strong>Ctrl + V</strong>
+                    <span>para subir tu pantallazo</span>
+                </div>
+            </div>
+            <div id="upload-status"></div>
+        </div>
+
+        <!-- SECCIÓN CENTRAL (CARRUSEL) -->
+        <div class="carousel-section">
+            <div class="progress-bar-container">
+                <div id="progress" class="progress-bar"></div>
+            </div>
+            <div id="carousel" class="carousel-container">
+                <div id="loading" class="loader">Sincronizando infografías...</div>
+            </div>
+        </div>
+
+        <!-- BARRA LATERAL DERECHA: mitad asignados / mitad por asignar -->
+        <div class="right-sidebar">
+            <div class="panel">
+                <div class="section-header">
+                    <span class="section-title">Asignados</span>
+                    <span class="badge-count" id="assigned-count">0</span>
+                </div>
+                <div class="panel-body" id="recent-list">
+                    <div class="loader">Cargando...</div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="section-header">
+                    <span class="section-title">Por Asignar</span>
+                    <span class="badge-count" id="unassigned-count">0</span>
+                </div>
+                <div class="panel-body" id="unassigned-list">
+                    <div class="loader">Cargando flota...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // VARIABLES GLOBALES
+        // ==========================================
+        let imagesData = [];
+        let currentIndex = 0;
+        const INTERVAL_MS = 15000;            // tiempo por infografía
+        const DATA_REFRESH_MS = 30000;        // refresco de asignaciones
+        const IMAGES_REFRESH_MS = 10 * 60000; // revisa si hay infografías nuevas
+        let carouselInterval;
+        const imageCache = {};                // id -> data URL ya descargada
+
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
+        // ==========================================
+        // MÓDULO: PANTALLAZOS
+        // ==========================================
+        window.addEventListener('paste', function(e) {
+            const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+            let imageFound = false;
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') === 0) {
+                    imageFound = true;
+                    const file = items[i].getAsFile();
+                    processFile(file);
+                    break;
+                }
+            }
+            if(!imageFound) {
+                showUploadStatus('Formato no válido. Pega una imagen.', 'orange');
+            }
+        });
+
+        const pasteZone = document.getElementById('paste-zone');
+        pasteZone.addEventListener('click', () => {
+            pasteZone.focus();
+            showUploadStatus('Listo. Presiona Ctrl+V', '#aaa');
+        });
+
+        function processFile(file) {
+            if (!file) return;
+            let fileName = file.name || "Pantallazo.png";
+            if (fileName === "image.png" || fileName === "Pantallazo.png") {
+                const now = new Date();
+                fileName = "Pantallazo_" + now.getHours() + now.getMinutes() + now.getSeconds() + ".png";
+            }
+
+            showUploadStatus('Subiendo captura... ⏳', 'white');
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const base64Data = e.target.result;
+                document.getElementById('qr-image').src = base64Data;
+
+                google.script.run
+                    .withSuccessHandler(function(response) {
+                        if(response.success) {
+                            showUploadStatus('¡Evidencia guardada exitosamente!', '#00FF00');
+                        } else {
+                            showUploadStatus('Error: ' + response.error, 'red');
+                        }
+                    })
+                    .withFailureHandler(function(error) {
+                        showUploadStatus('Error de red: ' + error.message, 'red');
+                    })
+                    .uploadImage(base64Data, fileName);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function showUploadStatus(htmlMsg, color) {
+            const statusDiv = document.getElementById('upload-status');
+            statusDiv.innerHTML = htmlMsg;
+            statusDiv.style.color = color;
+        }
+
+        // ==========================================
+        // MÓDULO: CARRUSEL
+        // ==========================================
+        function loadImages() {
+            google.script.run.withSuccessHandler(initCarousel).withFailureHandler(showError).getImagesFromFolder();
+        }
+
+        function refreshImageList() {
+            google.script.run.withSuccessHandler(function(images) {
+                const oldIds = imagesData.map(i => i.id).join(',');
+                const newIds = images.map(i => i.id).join(',');
+                if (oldIds !== newIds) initCarousel(images); // solo si cambió la carpeta
+            }).getImagesFromFolder();
+        }
+
+        function initCarousel(images) {
+            imagesData = images;
+            const carousel = document.getElementById('carousel');
+            carousel.innerHTML = '';
+
+            if (imagesData.length === 0) {
+                carousel.innerHTML = '<div class="loader">No hay infografías en la carpeta.</div>';
+                return;
+            }
+
+            imagesData.forEach((img, index) => {
+                const slide = document.createElement('div');
+                slide.className = 'slide';
+                slide.id = 'slide-' + index;
+                slide.innerHTML = `
+                    <div class="loader">Cargando imagen...</div>
+                    <img alt="${escapeHtml(img.name)}">
+                    <div class="slide-title">${escapeHtml(img.name.replace(/\.[^/.]+$/, ""))}</div>
+                `;
+                carousel.appendChild(slide);
+            });
+
+            currentIndex = 0;
+            showSlide(0);
+            startProgressBar();
+
+            if(carouselInterval) clearInterval(carouselInterval);
+            carouselInterval = setInterval(() => {
+                currentIndex = (currentIndex + 1) % imagesData.length;
+                showSlide(currentIndex);
+                startProgressBar();
+            }, INTERVAL_MS);
+        }
+
+        // Pide la imagen al servidor (base64) la primera vez y la guarda en memoria.
+        function ensureImageLoaded(index) {
+            const img = imagesData[index];
+            const slide = document.getElementById('slide-' + index);
+            if (!img || !slide) return;
+            const imgEl = slide.querySelector('img');
+            const loaderEl = slide.querySelector('.loader');
+
+            if (imageCache[img.id]) {
+                if (!imgEl.getAttribute('src')) imgEl.src = imageCache[img.id];
+                if (loaderEl) loaderEl.remove();
+                return;
+            }
+            if (imageCache[img.id] === null) return; // ya se está descargando
+            imageCache[img.id] = null;
+
+            google.script.run
+                .withSuccessHandler(function(dataUrl) {
+                    imageCache[img.id] = dataUrl;
+                    imgEl.src = dataUrl;
+                    if (loaderEl) loaderEl.remove();
+                })
+                .withFailureHandler(function(error) {
+                    delete imageCache[img.id]; // se reintenta en la próxima vuelta
+                    if (loaderEl) {
+                        loaderEl.style.color = 'red';
+                        loaderEl.innerText = 'No se pudo cargar: ' + error.message;
+                    }
+                })
+                .getImageData(img.id);
+        }
+
+        function showSlide(index) {
+            ensureImageLoaded(index);
+            ensureImageLoaded((index + 1) % imagesData.length); // precarga la siguiente
+            const slides = document.querySelectorAll('.slide');
+            slides.forEach(slide => slide.classList.remove('active'));
+            const activeSlide = document.getElementById('slide-' + index);
+            if(activeSlide) activeSlide.classList.add('active');
+        }
+
+        function startProgressBar() {
+            const progressBar = document.getElementById('progress');
+            progressBar.style.transition = 'none';
+            progressBar.style.width = '0%';
+            setTimeout(() => {
+                progressBar.style.transition = `width ${INTERVAL_MS}ms linear`;
+                progressBar.style.width = '100%';
+            }, 50);
+        }
+
+        function showError(error) {
+            const carousel = document.getElementById('carousel');
+            carousel.innerHTML = '<div class="loader" style="color:red">Error: ' + escapeHtml(error.message) + '</div>';
+            setTimeout(loadImages, 60000); // reintenta en 1 minuto
+        }
+
+        // ==========================================
+        // MÓDULO: ASIGNACIONES EN VIVO
+        // ==========================================
+        function loadData() {
+            const timeBadge = document.getElementById('update-time');
+            timeBadge.style.opacity = '0.5';
+
+            google.script.run
+                .withSuccessHandler(renderData)
+                .withFailureHandler(handleDataError)
+                .getData();
+        }
+
+        function renderData(data) {
+            const now = new Date();
+            const timeBadge = document.getElementById('update-time');
+            timeBadge.innerText = 'Última sincr: ' + now.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            timeBadge.style.opacity = '1';
+            timeBadge.style.backgroundColor = 'rgba(255,255,255,0.1)';
+            timeBadge.style.color = 'white';
+
+            // --- Mitad inferior: por asignar ---
+            const unassignedDiv = document.getElementById('unassigned-list');
+            document.getElementById('unassigned-count').innerText = data.unassigned.length;
+
+            if (data.unassigned.length === 0) {
+                unassignedDiv.innerHTML = `
+                    <div class="empty-msg">
+                        <h3>Cero Pendientes</h3>
+                        Flota despachada con éxito.
+                    </div>`;
+            } else {
+                let unassignedHtml = '';
+                data.unassigned.forEach((item, index) => {
+                    let priorityClass = 'badge-low';
+                    let priorityText = 'ESPERA';
+                    let cardClass = '';
+
+                    if (index < 2) { priorityClass = 'badge-high'; priorityText = 'ALTA'; cardClass = 'priority-high'; }
+                    else if (index < 5) { priorityClass = 'badge-medium'; priorityText = 'MEDIA'; cardClass = 'priority-medium'; }
+
+                    unassignedHtml += `
+                        <div class="card ${cardClass}">
+                            <span class="shopper-name">${escapeHtml(item.nombre)}</span>
+                            <span class="priority-badge ${priorityClass}">${priorityText}</span>
+                        </div>`;
+                });
+                unassignedDiv.innerHTML = unassignedHtml;
+            }
+
+            // --- Mitad superior: asignados (más reciente primero) ---
+            const recentDiv = document.getElementById('recent-list');
+            document.getElementById('assigned-count').innerText = data.recentAssigned.length;
+
+            if (data.recentAssigned.length === 0) {
+                recentDiv.innerHTML = '<div class="empty-msg">Aún no hay asignaciones.</div>';
+            } else {
+                let recentHtml = '';
+                data.recentAssigned.forEach((item, index) => {
+                    let isLatestClass = index === 0 ? 'latest-item' : '';
+                    let newTag = index === 0 ? '<span class="new-tag">NEW</span>' : '';
+
+                    recentHtml += `
+                        <div class="recent-item ${isLatestClass}">
+                            ${newTag}
+                            <span class="time-pill">${escapeHtml(item.hora)}</span>
+                            <span class="recent-name">${escapeHtml(item.nombre)}</span>
+                            <span class="sg-code">${escapeHtml(item.sg)}</span>
+                        </div>`;
+                });
+                recentDiv.innerHTML = recentHtml;
+            }
+        }
+
+        function handleDataError(error) {
+            const timeBadge = document.getElementById('update-time');
+            timeBadge.innerText = 'Desconectado - Reintentando...';
+            timeBadge.style.backgroundColor = 'var(--magenta)';
+            timeBadge.style.opacity = '1';
+        }
+
+        // ==========================================
+        // INICIALIZACIÓN GENERAL
+        // ==========================================
+        window.onload = function() {
+            loadImages();
+            loadData();
+            setInterval(loadData, DATA_REFRESH_MS);
+            setInterval(refreshImageList, IMAGES_REFRESH_MS);
+        };
+    </script>
+</body>
+</html>
