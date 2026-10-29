@@ -8,7 +8,7 @@ const CONFIG = {
   // Planilla con los indicadores (Resumen Diario / Histórico)
   SOURCE_ID: '1SpQH5HsR_Ghp6UqCg1Q2xsfgaD0PsHeRiAjU8sgn0H0',
   HOJA_DIARIO: 'Resumen Diario',
-  HOJA_HISTORICO: 'Histórico',
+  HOJA_HISTORICO: 'Historico',
 
   // Local a filtrar
   LOCAL: '120',

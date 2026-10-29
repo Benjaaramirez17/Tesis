@@ -54,6 +54,15 @@
     .up { color:#178a4a; font-weight:700; } .down { color:#c0392b; font-weight:700; }
     .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--navy);
              color:#fff; padding:10px 18px; border-radius:8px; display:none; font-weight:600; }
+    .captura .add, .captura .chip button { display:none !important; }
+    .captura textarea { display:none; }
+    #novTexto { display:none; white-space:pre-wrap; min-height:40px; padding:8px 10px; }
+    .captura #novTexto { display:block; }
+    .modal { display:none; position:fixed; inset:0; background:rgba(11,31,75,.6); align-items:center;
+             justify-content:center; padding:16px; z-index:10; }
+    .modal-box { background:#fff; border-radius:8px; padding:14px; max-width:520px; width:100%;
+                 max-height:100%; overflow:auto; }
+    .modal-box img { width:100%; border:1px solid var(--line); }
     details summary { cursor:pointer; padding:10px 18px; font-weight:700; color:var(--navy); }
   </style>
 </head>
@@ -66,7 +75,7 @@
 
   <!-- ===================== DOTACIÓN ===================== -->
   <div id="dot" class="panel active">
-    <div class="card">
+    <div class="card" id="cardDot">
       <div class="header"><span id="titulo">REPORTE DOTACIONES</span><span id="fecha"></span></div>
 
       <div class="bar">COORDINADOR EN SALA</div>
@@ -85,9 +94,11 @@
       <div class="bar">NOVEDADES</div>
       <div class="pad">
         <textarea id="novedades" rows="3" placeholder="Ej: Turno partido, cambio de rol, ausencias..."></textarea>
+        <div id="novTexto"></div>
       </div>
     </div>
     <div class="actions">
+      <button class="btn pink" id="btnFoto" onclick="pantallazo()">📷 Pantallazo</button>
       <button class="btn pink" onclick="copiarReporte()">Copiar reporte</button>
       <button class="btn" id="btnGuardar" onclick="guardar()">Guardar</button>
     </div>
@@ -117,7 +128,18 @@
   </div>
 </div>
 <div class="toast" id="toast"></div>
+<div id="modalFoto" class="modal" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal-box">
+    <img id="fotoImg" alt="Pantallazo dotación">
+    <p class="muted">Si no se descargó, mantén presionada la imagen (o clic derecho) para guardarla.</p>
+    <div class="actions">
+      <a id="fotoLink" class="btn pink" target="_self" style="text-decoration:none">Descargar</a>
+      <button class="btn" onclick="document.getElementById('modalFoto').style.display='none'">Cerrar</button>
+    </div>
+  </div>
+</div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script>
   let CFG = null;
   const state = { coordinadores: [], dotacion: {}, novedades: '' };
@@ -225,6 +247,32 @@
       () => { prompt('Copia el reporte:', txt); });
   }
 
+  // ---------- Pantallazo ----------
+  function pantallazo() {
+    const card = document.getElementById('cardDot');
+    const btn = document.getElementById('btnFoto');
+    btn.disabled = true;
+    document.getElementById('novTexto').textContent = state.novedades.trim() || '-';
+    card.classList.add('captura');
+    html2canvas(card, { scale: 2, backgroundColor: '#ffffff' }).then(canvas => {
+      card.classList.remove('captura');
+      btn.disabled = false;
+      const nombre = `Dotacion_L${CFG.local}_${CFG.hoy}.png`;
+      canvas.toBlob(blob => {
+        // Intenta copiar la imagen al portapapeles (para pegar directo en WhatsApp/Teams)
+        const copiar = (navigator.clipboard && window.ClipboardItem)
+          ? navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]) : Promise.reject();
+        copiar.then(() => toast('Pantallazo copiado y descargado'), () => toast('Pantallazo descargado'));
+        const url = canvas.toDataURL('image/png');
+        const a = document.getElementById('fotoLink');
+        a.href = url; a.download = nombre;
+        document.getElementById('fotoImg').src = url;
+        document.getElementById('modalFoto').style.display = 'flex';
+        try { a.click(); } catch (e) {}
+      }, 'image/png');
+    }).catch(e => { card.classList.remove('captura'); btn.disabled = false; err(e); });
+  }
+
   // ---------- Indicadores ----------
   function fmt(v, pct) {
     if (v === null || v === undefined || isNaN(v)) return '–';
@@ -269,7 +317,7 @@
   }
 
   function tablaSemana(s, comparar) {
-    if (!s.indicadores.length) return '<p class="pad muted">Sin datos en el Histórico para este período.</p>';
+    if (!s.indicadores.length) return '<p class="pad muted">Sin datos en el Historico para este período.</p>';
     const base = {};
     (comparar ? comparar.indicadores : []).forEach(i => base[i.indicador] = i.promedio);
     let h = '<table><tr><th>Indicador</th>' + s.dias.map(x => `<th>${x}</th>`).join('') +
