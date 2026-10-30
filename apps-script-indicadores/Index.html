@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --navy:#0b1f4b; --pink:#d63f8c; --bg:#eef0f5; --line:#e3e7f0; --soft:#f7f9fd; --txt:#1c2340; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); font-family:Inter, Arial, sans-serif; color:var(--txt); }
+    .wrap { max-width:1500px; margin:0 auto; padding:16px; }
+
+    .top { background:var(--navy); color:#fff; display:flex; justify-content:space-between; align-items:center;
+           gap:10px; flex-wrap:wrap; padding:14px 18px; border-radius:6px; margin-bottom:14px; }
+    .top h1 { margin:0; font-size:18px; font-weight:800; letter-spacing:.3px; }
+    .top .meta { display:flex; align-items:center; gap:12px; font-size:12px; opacity:.95; }
+
+    .grid { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:14px; align-items:start; }
+    @media (max-width: 1000px) { .grid { grid-template-columns:1fr; } }
+
+    .col { background:#fff; border-radius:6px; overflow:hidden; }
+    .col-head { background:var(--navy); color:#fff; text-align:center; font-weight:800; font-size:20px;
+                padding:12px; letter-spacing:.5px; }
+    .bar { background:var(--pink); color:#fff; text-align:center; font-weight:800; font-size:13px;
+           padding:9px; letter-spacing:.3px; }
+
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th { background:var(--soft); color:var(--navy); font-weight:800; padding:7px 6px; text-align:center;
+         border-bottom:1px solid var(--line); white-space:nowrap; font-size:12px; }
+    td { padding:7px 6px; text-align:center; border-bottom:1px solid var(--line); white-space:nowrap; }
+    td:first-child, th:first-child { text-align:left; padding-left:12px; font-weight:700;
+                                     white-space:normal; }
+    tr:nth-child(even) td { background:var(--soft); }
+    td.prom { font-weight:800; color:var(--navy); background:#fde8f2 !important; }
+    .scroll { overflow-x:auto; }
+    .muted { color:#7a829b; font-size:11px; }
+    .pad { padding:12px; margin:0; }
+    .up { color:#178a4a; font-weight:700; } .down { color:#c0392b; font-weight:700; }
+    details summary { cursor:pointer; padding:10px 12px; font-weight:700; color:var(--navy); font-size:13px; }
+    details .sub { padding:6px 12px; font-weight:800; font-size:12px; color:var(--pink); }
+
+    .btn { border:0; border-radius:8px; background:var(--pink); color:#fff; font-weight:800;
+           padding:8px 14px; cursor:pointer; font-size:13px; }
+    .btn:disabled { opacity:.5; cursor:default; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>INDICADORES TIENDAS</h1>
+    <div class="meta">
+      <span id="actualizado">Cargando…</span>
+      <button class="btn" id="btnAct" onclick="cargar()">↻ Actualizar</button>
+    </div>
+  </div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+  function fmt(v, pct) {
+    if (v === null || v === undefined || isNaN(v)) return '–';
+    return pct ? (v * 100).toLocaleString('es-CL', { maximumFractionDigits: 1 }) + '%'
+               : v.toLocaleString('es-CL', { maximumFractionDigits: 2 });
+  }
+
+  function variacion(actual, base, pct) {
+    if (actual === null || base === null || base === undefined) return '<td>–</td>';
+    const diff = actual - base;
+    const n = pct ? diff * 100 : (base ? diff / Math.abs(base) * 100 : diff);
+    const r = Math.round(n * 10) / 10;
+    const unidad = pct ? ' pp' : (base ? '%' : '');
+    if (r === 0) return `<td class="muted">= 0${unidad}</td>`;
+    const txt = r.toLocaleString('es-CL', { maximumFractionDigits: 1 }) + unidad;
+    return `<td class="${r > 0 ? 'up' : 'down'}">${r > 0 ? '▲ +' : '▼ '}${txt}</td>`;
+  }
+
+  function tablaDia(d) {
+    if (!d.indicadores.length) return '<p class="pad muted">Sin datos en Resumen Diario.</p>';
+    let h = '<table><tr><th>Indicador</th><th>Promedio</th><th>Último</th></tr>';
+    d.indicadores.forEach(i => {
+      h += `<tr><td>${i.indicador}</td><td class="prom">${fmt(i.promedio, i.pct)}</td>
+            <td>${fmt(i.ultimo, i.pct)} <span class="muted">${i.ultimaHora}</span></td></tr>`;
+    });
+    return h + '</table>';
+  }
+
+  function tablaSemanal(ant, act) {
+    const nombres = [...new Set([...ant.indicadores, ...act.indicadores].map(i => i.indicador))].sort();
+    if (!nombres.length) return '<p class="pad muted">Sin datos en Historico.</p>';
+    const A = {}, B = {};
+    ant.indicadores.forEach(i => A[i.indicador] = i);
+    act.indicadores.forEach(i => B[i.indicador] = i);
+    let h = `<table><tr><th>Indicador</th><th>Sem ${ant.semana}<br><span class="muted">${ant.rango}</span></th>
+             <th>Sem ${act.semana}<br><span class="muted">en curso</span></th><th>Var.</th></tr>`;
+    nombres.forEach(n => {
+      const a = A[n], b = B[n], pct = (a || b).pct;
+      const pa = a ? a.promedio : null, pb = b ? b.promedio : null;
+      h += `<tr><td>${n}</td><td>${fmt(pa, pct)}</td><td class="prom">${fmt(pb, pct)}</td>${variacion(pb, pa, pct)}</tr>`;
+    });
+    return h + '</table>';
+  }
+
+  function tablaDiaria(s) {
+    if (!s.indicadores.length) return '<p class="pad muted">Sin datos.</p>';
+    let h = '<div class="scroll"><table><tr><th>Indicador</th>' + s.dias.map(x => `<th>${x}</th>`).join('') + '<th>Prom.</th></tr>';
+    s.indicadores.forEach(i => {
+      h += `<tr><td>${i.indicador}</td>` + i.porDia.map(v => `<td>${fmt(v, i.pct)}</td>`).join('') +
+           `<td class="prom">${fmt(i.promedio, i.pct)}</td></tr>`;
+    });
+    return h + '</table></div>';
+  }
+
+  function render(r) {
+    document.getElementById('actualizado').textContent = 'Actualizado ' + r.actualizado + ' · se refresca cada 5 min';
+    document.getElementById('grid').innerHTML = r.tiendas.map(t => `
+      <div class="col">
+        <div class="col-head">L${t.local}</div>
+        <div class="bar">PROMEDIO DEL DÍA · ${t.dia.fecha || 'sin datos'}${t.dia.esHoy || !t.dia.fecha ? '' : ' (último)'}</div>
+        <div class="scroll">${tablaDia(t.dia)}</div>
+        <div class="bar">CONSOLIDADO SEMANAL</div>
+        <div class="scroll">${tablaSemanal(t.anterior, t.actual)}</div>
+        <details>
+          <summary>Ver detalle diario</summary>
+          <div class="sub">Semana ${t.anterior.semana} · ${t.anterior.rango}</div>${tablaDiaria(t.anterior)}
+          <div class="sub">Semana ${t.actual.semana} · en curso</div>${tablaDiaria(t.actual)}
+        </details>
+      </div>`).join('');
+  }
+
+  function cargar() {
+    const btn = document.getElementById('btnAct');
+    btn.disabled = true;
+    google.script.run
+      .withSuccessHandler(r => { btn.disabled = false; render(r); })
+      .withFailureHandler(e => {
+        btn.disabled = false;
+        document.getElementById('actualizado').textContent = 'Error: ' + e.message;
+      })
+      .getIndicadores();
+  }
+
+  cargar();
+  setInterval(cargar, 5 * 60 * 1000);
+</script>
+</body>
+</html>
