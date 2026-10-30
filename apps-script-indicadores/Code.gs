@@ -11,6 +11,9 @@ const CONFIG = {
   HOJA_HISTORICO: 'Historico',
   LOCALES: ['94', '120', '657'],
 
+  // Filas que se leen por bloque al buscar desde el final de la hoja
+  BLOQUE_LECTURA: 3000,
+
   // Correo diario. Vacío = se envía a la cuenta dueña del script.
   // Para varios destinatarios: 'correo1@x.cl, correo2@x.cl'
   EMAIL_DESTINO: '',
@@ -267,15 +270,22 @@ function leerHoja_(nombre, desdeKey) {
     throw new Error('Faltan columnas Local/Indicador en "' + nombre + '"');
   }
 
-  // 1) Solo la columna Fecha → rango de filas a leer
-  const inicio = hRow + 2, n = lastRow - hRow - 1;
-  if (n < 1) return [];
-  const fechas = sh.getRange(inicio, col.fecha + 1, n, 1).getValues();
-  const keys = new Array(n);
+  // 1) Columna Fecha leída desde el final hacia arriba, en bloques: como los datos
+  //    más nuevos están abajo, se detiene al encontrar una fecha anterior a desdeKey.
+  const primeraFila = hRow + 2;
+  if (lastRow < primeraFila) return [];
+  let keys = [], inicio = lastRow + 1;
+  while (inicio > primeraFila) {
+    const desde = Math.max(primeraFila, inicio - CONFIG.BLOQUE_LECTURA);
+    const fechas = sh.getRange(desde, col.fecha + 1, inicio - desde, 1).getValues();
+    const bloque = fechas.map(r => { const f = parseFecha_(r[0]); return f ? dayKey_(f) : null; });
+    keys = bloque.concat(keys);
+    inicio = desde;
+    if (desdeKey && bloque.some(k => k && k < desdeKey)) break;
+  }
+  const n = keys.length;
   let primera = -1, ultima = -1;
   for (let i = 0; i < n; i++) {
-    const f = parseFecha_(fechas[i][0]);
-    keys[i] = f ? dayKey_(f) : null;
     if (keys[i] && (!desdeKey || keys[i] >= desdeKey)) {
       if (primera < 0) primera = i;
       ultima = i;
