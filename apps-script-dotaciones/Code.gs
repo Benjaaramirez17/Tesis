@@ -86,7 +86,7 @@ function guardarDotacion(data) {
 // ===================== INDICADORES =====================
 /** Promedio del día (Resumen Diario) para el local configurado. */
 function getIndicadoresDia() {
-  const filas = leerHoja_(CONFIG.HOJA_DIARIO);
+  const filas = leerHoja_(CONFIG.HOJA_DIARIO, dayKey_(addDays_(new Date(), -7)));
   const hoyKey = dayKey_(new Date());
 
   // Si hoy aún no hay datos, mostrar la última fecha disponible
@@ -138,11 +138,10 @@ function getIndicadoresDia() {
 
 /** Consolidado semana anterior completa (Lun-Dom) + semana en curso (Histórico). */
 function getConsolidadoSemanal() {
-  const filas = leerHoja_(CONFIG.HOJA_HISTORICO);
-
   const hoy = startOfDay_(new Date());
   const lunesActual = addDays_(hoy, -((hoy.getDay() + 6) % 7));
   const lunesAnterior = addDays_(lunesActual, -7);
+  const filas = leerHoja_(CONFIG.HOJA_HISTORICO, dayKey_(lunesAnterior));
 
   return {
     anterior: consolidarSemana_(filas, lunesAnterior, addDays_(lunesAnterior, 6)),
@@ -180,21 +179,23 @@ function consolidarSemana_(filas, desde, hasta) {
 
 // ===================== LECTURA DE DATOS =====================
 /**
- * Lee una hoja de la planilla fuente y devuelve filas normalizadas del local configurado:
- * { key: 'yyyy-MM-dd', indicador, hora, valor, pct }
+ * Lee una hoja y devuelve las filas del local configurado:
+ * { local, key: 'yyyy-MM-dd', indicador, hora, valor, pct }
  * Las columnas se buscan por nombre (Fecha, Local, Indicador, Hora, Valor).
+ * Para no leer hojas enormes completas: primero lee solo la columna Fecha,
+ * ubica el bloque de filas con fecha >= desdeKey y lee únicamente ese bloque.
  */
-function leerHoja_(nombre) {
+function leerHoja_(nombre, desdeKey) {
   const sh = SpreadsheetApp.openById(CONFIG.SOURCE_ID).getSheetByName(nombre);
   if (!sh) throw new Error('No se encontró la hoja "' + nombre + '"');
-  const rango = sh.getDataRange();
-  const values = rango.getValues();
-  const display = rango.getDisplayValues();
+  const lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  if (lastRow < 2) return [];
 
-  // Buscar fila de encabezados en las primeras 10 filas
+  // Encabezados (primeras 10 filas)
+  const cab = sh.getRange(1, 1, Math.min(10, lastRow), lastCol).getValues();
   let hRow = -1, col = {};
-  for (let r = 0; r < Math.min(10, values.length); r++) {
-    const norm = values[r].map(normaliza_);
+  for (let r = 0; r < cab.length; r++) {
+    const norm = cab[r].map(normaliza_);
     if (norm.indexOf('fecha') > -1 && norm.indexOf('valor') > -1) {
       hRow = r;
       ['fecha', 'local', 'indicador', 'hora', 'valor'].forEach(c => { col[c] = norm.indexOf(c); });
@@ -202,28 +203,60 @@ function leerHoja_(nombre) {
     }
   }
   if (hRow < 0) throw new Error('No se encontraron encabezados Fecha/Valor en "' + nombre + '"');
+  if (col.local < 0 || col.indicador < 0) {
+    throw new Error('Faltan columnas Local/Indicador en "' + nombre + '"');
+  }
 
+  // 1) Solo la columna Fecha → rango de filas a leer
+  const inicio = hRow + 2, n = lastRow - hRow - 1;
+  if (n < 1) return [];
+  const fechas = sh.getRange(inicio, col.fecha + 1, n, 1).getValues();
+  const keys = new Array(n);
+  let primera = -1, ultima = -1;
+  for (let i = 0; i < n; i++) {
+    const f = parseFecha_(fechas[i][0]);
+    keys[i] = f ? dayKey_(f) : null;
+    if (keys[i] && (!desdeKey || keys[i] >= desdeKey)) {
+      if (primera < 0) primera = i;
+      ultima = i;
+    }
+  }
+  if (primera < 0) return [];
+
+  // 2) Solo el bloque de filas y columnas necesarias
+  const usadas = [col.local, col.indicador, col.hora, col.valor].filter(c => c > -1);
+  const c0 = Math.min.apply(null, usadas), c1 = Math.max.apply(null, usadas);
+  const filas = ultima - primera + 1;
+  const values = sh.getRange(inicio + primera, c0 + 1, filas, c1 - c0 + 1).getValues();
+  const dispValor = sh.getRange(inicio + primera, col.valor + 1, filas, 1).getDisplayValues();
+  const dispHora = col.hora > -1 ? sh.getRange(inicio + primera, col.hora + 1, filas, 1).getDisplayValues() : null;
+
+  const locales = new Set([String(Number(CONFIG.LOCAL))]);
   const out = [];
-  for (let r = hRow + 1; r < values.length; r++) {
-    const v = values[r];
-    if (!esLocal_(v[col.local])) continue;
-    const fecha = parseFecha_(v[col.fecha]);
-    const valor = parseNum_(v[col.valor]);
-    if (!fecha || valor === null) continue;
+  for (let i = 0; i < filas; i++) {
+    const key = keys[primera + i];
+    if (!key || (desdeKey && key < desdeKey)) continue;
+    const v = values[i];
+    const local = localDe_(v[col.local - c0]);
+    if (!locales.has(local)) continue;
+    const valor = parseNum_(v[col.valor - c0]);
+    if (valor === null) continue;
     out.push({
-      key: dayKey_(fecha),
-      indicador: String(v[col.indicador] || 'Sin indicador').trim(),
-      hora: col.hora > -1 ? parseHora_(v[col.hora], display[r][col.hora]) : '',
+      local: local,
+      key: key,
+      indicador: String(v[col.indicador - c0] || 'Sin indicador').trim(),
+      hora: col.hora > -1 ? parseHora_(v[col.hora - c0], dispHora[i][0]) : '',
       valor: valor,
-      pct: String(display[r][col.valor]).indexOf('%') > -1
+      pct: String(dispValor[i][0]).indexOf('%') > -1
     });
   }
   return out;
 }
 
-function esLocal_(v) {
+/** "L120", "120 - Nombre", 120 → "120" */
+function localDe_(v) {
   const m = String(v).match(/\d+/);
-  return !!m && Number(m[0]) === Number(CONFIG.LOCAL);
+  return m ? String(Number(m[0])) : '';
 }
 
 function normaliza_(s) {

@@ -29,15 +29,22 @@ function doGet() {
 }
 
 /** Devuelve todo lo necesario para pintar las 3 columnas en una sola llamada. */
-function getIndicadores() {
-  const diario = leerHoja_(CONFIG.HOJA_DIARIO);
-  const historico = leerHoja_(CONFIG.HOJA_HISTORICO);
+function getIndicadores(forzar) {
+  // Caché de 5 min para no releer la planilla en cada visita
+  const cache = CacheService.getScriptCache();
+  if (!forzar) {
+    const c = cache.get('indicadores');
+    if (c) return JSON.parse(c);
+  }
 
   const hoy = startOfDay_(new Date());
   const lunesActual = addDays_(hoy, -((hoy.getDay() + 6) % 7));
   const lunesAnterior = addDays_(lunesActual, -7);
 
-  return {
+  const diario = leerHoja_(CONFIG.HOJA_DIARIO, dayKey_(addDays_(hoy, -7)));
+  const historico = leerHoja_(CONFIG.HOJA_HISTORICO, dayKey_(lunesAnterior));
+
+  const res = {
     actualizado: Utilities.formatDate(new Date(), TZ, 'dd-MM-yyyy HH:mm'),
     tiendas: CONFIG.LOCALES.map(local => {
       const fd = diario.filter(f => f.local === local);
@@ -50,6 +57,23 @@ function getIndicadores() {
       };
     })
   };
+  try { cache.put('indicadores', JSON.stringify(res), 300); } catch (e) {} // >100KB no se cachea
+  return res;
+}
+
+/** Ejecutar a mano para revisar tiempos y filas leídas (ver Registro de ejecución). */
+function diagnostico() {
+  [CONFIG.HOJA_DIARIO, CONFIG.HOJA_HISTORICO].forEach(h => {
+    const t = Date.now();
+    const sh = SpreadsheetApp.openById(CONFIG.SOURCE_ID).getSheetByName(h);
+    Logger.log(h + ': ' + (sh ? sh.getLastRow() + ' filas x ' + sh.getLastColumn() + ' columnas' : 'NO EXISTE'));
+    if (!sh) return;
+    const filas = leerHoja_(h, dayKey_(addDays_(new Date(), -14)));
+    const porLocal = {};
+    filas.forEach(f => porLocal[f.local] = (porLocal[f.local] || 0) + 1);
+    Logger.log('  filas últimos 14 días por local: ' + JSON.stringify(porLocal) + ' · ' + (Date.now() - t) + ' ms');
+    if (filas.length) Logger.log('  ejemplo: ' + JSON.stringify(filas[filas.length - 1]));
+  });
 }
 
 // ===================== CÁLCULOS =====================
@@ -134,10 +158,10 @@ function enviarResumenDiario() {
   const kAyer = dayKey_(ayer), kSemAnt = dayKey_(semAnt);
 
   // El día anterior se busca en Historico; si aún no está, en Resumen Diario
-  const historico = leerHoja_(CONFIG.HOJA_HISTORICO);
+  const historico = leerHoja_(CONFIG.HOJA_HISTORICO, kSemAnt);
   let filas = historico;
   if (!historico.some(f => f.key === kAyer)) {
-    filas = historico.concat(leerHoja_(CONFIG.HOJA_DIARIO).filter(f => f.key === kAyer));
+    filas = historico.concat(leerHoja_(CONFIG.HOJA_DIARIO, kAyer).filter(f => f.key === kAyer));
   }
 
   // datos[indicador][local] = { prom, base, pct }
@@ -218,17 +242,20 @@ function varTxt_(actual, base, pct) {
  * Lee una hoja y devuelve las filas de los locales configurados:
  * { local, key: 'yyyy-MM-dd', indicador, hora, valor, pct }
  * Las columnas se buscan por nombre (Fecha, Local, Indicador, Hora, Valor).
+ * Para no leer hojas enormes completas: primero lee solo la columna Fecha,
+ * ubica el bloque de filas con fecha >= desdeKey y lee únicamente ese bloque.
  */
-function leerHoja_(nombre) {
+function leerHoja_(nombre, desdeKey) {
   const sh = SpreadsheetApp.openById(CONFIG.SOURCE_ID).getSheetByName(nombre);
   if (!sh) throw new Error('No se encontró la hoja "' + nombre + '"');
-  const rango = sh.getDataRange();
-  const values = rango.getValues();
-  const display = rango.getDisplayValues();
+  const lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  if (lastRow < 2) return [];
 
+  // Encabezados (primeras 10 filas)
+  const cab = sh.getRange(1, 1, Math.min(10, lastRow), lastCol).getValues();
   let hRow = -1, col = {};
-  for (let r = 0; r < Math.min(10, values.length); r++) {
-    const norm = values[r].map(normaliza_);
+  for (let r = 0; r < cab.length; r++) {
+    const norm = cab[r].map(normaliza_);
     if (norm.indexOf('fecha') > -1 && norm.indexOf('valor') > -1) {
       hRow = r;
       ['fecha', 'local', 'indicador', 'hora', 'valor'].forEach(c => { col[c] = norm.indexOf(c); });
@@ -236,23 +263,51 @@ function leerHoja_(nombre) {
     }
   }
   if (hRow < 0) throw new Error('No se encontraron encabezados Fecha/Valor en "' + nombre + '"');
+  if (col.local < 0 || col.indicador < 0) {
+    throw new Error('Faltan columnas Local/Indicador en "' + nombre + '"');
+  }
+
+  // 1) Solo la columna Fecha → rango de filas a leer
+  const inicio = hRow + 2, n = lastRow - hRow - 1;
+  if (n < 1) return [];
+  const fechas = sh.getRange(inicio, col.fecha + 1, n, 1).getValues();
+  const keys = new Array(n);
+  let primera = -1, ultima = -1;
+  for (let i = 0; i < n; i++) {
+    const f = parseFecha_(fechas[i][0]);
+    keys[i] = f ? dayKey_(f) : null;
+    if (keys[i] && (!desdeKey || keys[i] >= desdeKey)) {
+      if (primera < 0) primera = i;
+      ultima = i;
+    }
+  }
+  if (primera < 0) return [];
+
+  // 2) Solo el bloque de filas y columnas necesarias
+  const usadas = [col.local, col.indicador, col.hora, col.valor].filter(c => c > -1);
+  const c0 = Math.min.apply(null, usadas), c1 = Math.max.apply(null, usadas);
+  const filas = ultima - primera + 1;
+  const values = sh.getRange(inicio + primera, c0 + 1, filas, c1 - c0 + 1).getValues();
+  const dispValor = sh.getRange(inicio + primera, col.valor + 1, filas, 1).getDisplayValues();
+  const dispHora = col.hora > -1 ? sh.getRange(inicio + primera, col.hora + 1, filas, 1).getDisplayValues() : null;
 
   const locales = new Set(CONFIG.LOCALES.map(l => String(Number(l))));
   const out = [];
-  for (let r = hRow + 1; r < values.length; r++) {
-    const v = values[r];
-    const local = localDe_(v[col.local]);
+  for (let i = 0; i < filas; i++) {
+    const key = keys[primera + i];
+    if (!key || (desdeKey && key < desdeKey)) continue;
+    const v = values[i];
+    const local = localDe_(v[col.local - c0]);
     if (!locales.has(local)) continue;
-    const fecha = parseFecha_(v[col.fecha]);
-    const valor = parseNum_(v[col.valor]);
-    if (!fecha || valor === null) continue;
+    const valor = parseNum_(v[col.valor - c0]);
+    if (valor === null) continue;
     out.push({
       local: local,
-      key: dayKey_(fecha),
-      indicador: String(v[col.indicador] || 'Sin indicador').trim(),
-      hora: col.hora > -1 ? parseHora_(v[col.hora], display[r][col.hora]) : '',
+      key: key,
+      indicador: String(v[col.indicador - c0] || 'Sin indicador').trim(),
+      hora: col.hora > -1 ? parseHora_(v[col.hora - c0], dispHora[i][0]) : '',
       valor: valor,
-      pct: String(display[r][col.valor]).indexOf('%') > -1
+      pct: String(dispValor[i][0]).indexOf('%') > -1
     });
   }
   return out;

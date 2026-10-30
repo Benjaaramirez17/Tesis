@@ -50,7 +50,7 @@
     <h1>INDICADORES TIENDAS</h1>
     <div class="meta">
       <span id="actualizado">Cargando…</span>
-      <button class="btn" id="btnAct" onclick="cargar()">↻ Actualizar</button>
+      <button class="btn" id="btnAct" onclick="cargar(true)">↻ Actualizar</button>
     </div>
   </div>
   <div class="grid" id="grid"></div>
@@ -127,20 +127,29 @@
       </div>`).join('');
   }
 
-  function cargar() {
+  function cargar(forzar) {
     const btn = document.getElementById('btnAct');
+    const estado = document.getElementById('actualizado');
     btn.disabled = true;
+    estado.textContent = 'Cargando…';
+    const aviso = setTimeout(() => {
+      estado.textContent = 'Sigue cargando… (la planilla es grande, puede tardar hasta 1 min)';
+    }, 15000);
     google.script.run
-      .withSuccessHandler(r => { btn.disabled = false; render(r); })
-      .withFailureHandler(e => {
-        btn.disabled = false;
-        document.getElementById('actualizado').textContent = 'Error: ' + e.message;
+      .withSuccessHandler(r => {
+        clearTimeout(aviso); btn.disabled = false;
+        if (!r) { estado.textContent = 'Error: el servidor no devolvió datos'; return; }
+        try { render(r); } catch (e) { estado.textContent = 'Error al mostrar: ' + e.message; }
       })
-      .getIndicadores();
+      .withFailureHandler(e => {
+        clearTimeout(aviso); btn.disabled = false;
+        estado.textContent = 'Error: ' + (e.message || e);
+      })
+      .getIndicadores(!!forzar);
   }
 
-  cargar();
-  setInterval(cargar, 5 * 60 * 1000);
+  cargar(false);
+  setInterval(() => cargar(true), 5 * 60 * 1000);
 </script>
 </body>
 </html>
