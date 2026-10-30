@@ -9,7 +9,12 @@ const CONFIG = {
   SOURCE_ID: '1SpQH5HsR_Ghp6UqCg1Q2xsfgaD0PsHeRiAjU8sgn0H0',
   HOJA_DIARIO: 'Resumen Diario',
   HOJA_HISTORICO: 'Historico',
-  LOCALES: ['94', '120', '657']
+  LOCALES: ['94', '120', '657'],
+
+  // Correo diario. Vacío = se envía a la cuenta dueña del script.
+  // Para varios destinatarios: 'correo1@x.cl, correo2@x.cl'
+  EMAIL_DESTINO: '',
+  HORA_CORREO: 8
 };
 
 const TZ = 'America/Santiago';
@@ -106,6 +111,106 @@ function consolidarSemana_(filas, desde, hasta) {
       promedio: avg_(porInd[k].valores)
     }))
   };
+}
+
+// ===================== CORREO DIARIO =====================
+/**
+ * Ejecutar UNA vez a mano (menú Ejecutar) para dejar programado el correo diario.
+ * Google lo dispara dentro de la ventana 8:00–9:00.
+ */
+function crearTriggerDiario() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'enviarResumenDiario')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('enviarResumenDiario')
+    .timeBased().everyDays(1).atHour(CONFIG.HORA_CORREO).inTimezone(TZ).create();
+}
+
+/** Envía por correo los indicadores del día anterior de cada tienda. */
+function enviarResumenDiario() {
+  const hoy = startOfDay_(new Date());
+  const ayer = addDays_(hoy, -1);
+  const semAnt = addDays_(ayer, -7);
+  const kAyer = dayKey_(ayer), kSemAnt = dayKey_(semAnt);
+
+  // El día anterior se busca en Historico; si aún no está, en Resumen Diario
+  const historico = leerHoja_(CONFIG.HOJA_HISTORICO);
+  let filas = historico;
+  if (!historico.some(f => f.key === kAyer)) {
+    filas = historico.concat(leerHoja_(CONFIG.HOJA_DIARIO).filter(f => f.key === kAyer));
+  }
+
+  // datos[indicador][local] = { prom, base, pct }
+  const datos = {};
+  filas.forEach(f => {
+    if (f.key !== kAyer && f.key !== kSemAnt) return;
+    const d = (datos[f.indicador] = datos[f.indicador] || {});
+    const c = (d[f.local] = d[f.local] || { ayer: [], base: [], pct: false });
+    (f.key === kAyer ? c.ayer : c.base).push(f.valor);
+    c.pct = c.pct || f.pct;
+  });
+
+  const locales = CONFIG.LOCALES.map(l => String(Number(l)));
+  const indicadores = Object.keys(datos).sort()
+    .filter(i => locales.some(l => datos[i][l] && datos[i][l].ayer.length));
+
+  const fechaTxt = Utilities.formatDate(ayer, TZ, 'dd-MM-yyyy');
+  const diaSem = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'][ayer.getDay()];
+
+  const th = 'background:#0b1f4b;color:#fff;padding:8px 10px;font-size:13px;text-align:center;';
+  const td = 'padding:8px 10px;border-bottom:1px solid #e3e7f0;font-size:13px;text-align:center;';
+  let html = '<div style="font-family:Arial,sans-serif;color:#1c2340;max-width:680px">' +
+    '<div style="background:#0b1f4b;color:#fff;padding:14px 18px;font-weight:bold;font-size:17px">' +
+    'INDICADORES TIENDAS · ' + diaSem + ' ' + fechaTxt + '</div>' +
+    '<div style="background:#d63f8c;color:#fff;padding:8px;text-align:center;font-weight:bold;font-size:13px">' +
+    'PROMEDIO DEL DÍA ANTERIOR</div>';
+
+  if (!indicadores.length) {
+    html += '<p style="padding:14px">No se encontraron datos para el ' + fechaTxt + '.</p>';
+  } else {
+    html += '<table style="border-collapse:collapse;width:100%"><tr><th style="' + th + 'text-align:left">Indicador</th>' +
+      locales.map(l => '<th style="' + th + '">L' + l + '</th>').join('') + '</tr>';
+    indicadores.forEach((ind, n) => {
+      const bg = n % 2 ? 'background:#f7f9fd;' : '';
+      html += '<tr><td style="' + td + bg + 'text-align:left;font-weight:bold">' + ind + '</td>';
+      locales.forEach(l => {
+        const c = datos[ind][l];
+        if (!c || !c.ayer.length) { html += '<td style="' + td + bg + '">–</td>'; return; }
+        const prom = avg_(c.ayer), base = avg_(c.base);
+        html += '<td style="' + td + bg + '"><b>' + fmtNum_(prom, c.pct) + '</b>' +
+          varTxt_(prom, base, c.pct) + '</td>';
+      });
+      html += '</tr>';
+    });
+    html += '</table><p style="font-size:11px;color:#7a829b;padding:8px 2px">Variación vs. mismo día de la ' +
+      'semana anterior (' + Utilities.formatDate(semAnt, TZ, 'dd-MM') + '). En porcentajes se expresa en puntos (pp).</p>';
+  }
+  html += '</div>';
+
+  const destino = CONFIG.EMAIL_DESTINO || Session.getEffectiveUser().getEmail();
+  MailApp.sendEmail({
+    to: destino,
+    subject: 'Indicadores L' + locales.join(' · L') + ' – ' + fechaTxt,
+    htmlBody: html
+  });
+}
+
+function fmtNum_(v, pct) {
+  const n = pct ? v * 100 : v;
+  const txt = (Math.round(n * (pct ? 10 : 100)) / (pct ? 10 : 100)).toString().replace('.', ',');
+  return txt + (pct ? '%' : '');
+}
+
+function varTxt_(actual, base, pct) {
+  if (base === null) return '';
+  const diff = actual - base;
+  const n = pct ? diff * 100 : (base ? diff / Math.abs(base) * 100 : diff);
+  const r = Math.round(n * 10) / 10;
+  const unidad = pct ? ' pp' : (base ? '%' : '');
+  if (r === 0) return '<br><span style="font-size:11px;color:#7a829b">= 0' + unidad + '</span>';
+  const color = r > 0 ? '#178a4a' : '#c0392b';
+  return '<br><span style="font-size:11px;color:' + color + '">' + (r > 0 ? '▲ +' : '▼ ') +
+    String(r).replace('.', ',') + unidad + '</span>';
 }
 
 // ===================== LECTURA DE DATOS =====================
