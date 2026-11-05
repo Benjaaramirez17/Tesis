@@ -4,6 +4,17 @@
     <base target="_top">
     <meta charset="UTF-8">
     <title>Valdishopper - Monitor Visual</title>
+    <script>
+        // Va primero y aparte: si el script principal tiene un error (por ejemplo,
+        // un pegado incompleto), igual se muestra el motivo en pantalla.
+        window.addEventListener('error', function(e) {
+            var badge = document.getElementById('update-time');
+            if (!badge) return;
+            badge.innerText = '⚠ ' + e.message + (e.lineno ? ' (línea ' + e.lineno + ')' : '');
+            badge.style.backgroundColor = '#C01877';
+            badge.style.opacity = '1';
+        });
+    </script>
     <style>
         :root {
             --dark-blue: #0B1C49;
@@ -303,7 +314,7 @@
             <h1>Valdishopper</h1>
             <h2>Monitor de Estándares Operativos & Flujo de Despachos</h2>
         </div>
-        <div class="update-time" id="update-time">Iniciando sistemas...</div>
+        <div class="update-time" id="update-time">Iniciando sistemas... (v6)</div>
     </div>
 
     <div class="content-wrapper">
@@ -663,7 +674,6 @@
             timeBadge.style.backgroundColor = 'var(--magenta)';
             timeBadge.style.opacity = '1';
         }
-        window.addEventListener('error', e => showFatal('Error en la página: ' + e.message));
 
         function safe(name, fn) {
             try { fn(); } catch (e) { console.error(name, e); showFatal(name + ': ' + e.message); }
