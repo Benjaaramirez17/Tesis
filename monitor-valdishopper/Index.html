@@ -655,14 +655,33 @@
         // ==========================================
         // INICIALIZACIÓN GENERAL
         // ==========================================
-        window.onload = function() {
-            loadImages();
-            loadWaze();
-            setInterval(loadWaze, WAZE_RELOAD_MS);
-            loadData();
-            setInterval(loadData, DATA_REFRESH_MS);
-            setInterval(refreshImageList, IMAGES_REFRESH_MS);
-        };
+        // Muestra cualquier error de la página en el recuadro de sincronización,
+        // para que no quede "pegada" sin explicación.
+        function showFatal(msg) {
+            const timeBadge = document.getElementById('update-time');
+            timeBadge.innerText = '⚠ ' + msg;
+            timeBadge.style.backgroundColor = 'var(--magenta)';
+            timeBadge.style.opacity = '1';
+        }
+        window.addEventListener('error', e => showFatal('Error en la página: ' + e.message));
+
+        function safe(name, fn) {
+            try { fn(); } catch (e) { console.error(name, e); showFatal(name + ': ' + e.message); }
+        }
+
+        // El script está al final del <body>, así que la página ya existe:
+        // se parte de inmediato, sin esperar a que terminen de cargar QR o mapa.
+        safe('Asignaciones', () => { loadData(); setInterval(loadData, DATA_REFRESH_MS); });
+        safe('Carrusel', () => { loadImages(); setInterval(refreshImageList, IMAGES_REFRESH_MS); });
+        // El mapa va al final y con un pequeño retraso, para no competir con los datos.
+        setTimeout(() => safe('Mapa Waze', () => { loadWaze(); setInterval(loadWaze, WAZE_RELOAD_MS); }), 2000);
+
+        // Si en 25 s el servidor no respondió nada, avisa en pantalla.
+        setTimeout(() => {
+            if (document.getElementById('update-time').innerText.indexOf('Última sincr') === -1) {
+                showFatal('Sin respuesta del servidor. Revisa la implementación (F12 → Consola).');
+            }
+        }, 25000);
     </script>
 </body>
 </html>
