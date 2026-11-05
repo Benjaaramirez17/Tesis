@@ -314,7 +314,7 @@
             <h1>Valdishopper</h1>
             <h2>Monitor de Estándares Operativos & Flujo de Despachos</h2>
         </div>
-        <div class="update-time" id="update-time">Iniciando sistemas... (v6)</div>
+        <div class="update-time" id="update-time">Iniciando sistemas... (v7)</div>
     </div>
 
     <div class="content-wrapper">
@@ -386,16 +386,18 @@
         const INTERVAL_MS = 15000;            // tiempo por infografía
         const WAZE_RELOAD_MS = 10 * 60000;    // recarga completa del mapa cada 10 min
         // Mapa en vivo oficial de Waze (embed). Cambia lat/lon/zoom para mover el encuadre.
-        const WAZE_URL = 'https://embed.waze.com/es/iframe?zoom=13&lat=-39.8173&lon=-73.2425&ct=livemap';
+        const WAZE_URL = 'https://embed.waze.com/es/iframe?zoom=13\u0026lat=-39.8173\u0026lon=-73.2425\u0026ct=livemap';
         const DATA_REFRESH_MS = 30000;        // refresco de asignaciones
         const IMAGES_REFRESH_MS = 10 * 60000; // revisa si hay infografías nuevas
         let carouselTimer;
         const imageCache = {};                // id -> data URL ya descargada
 
         function escapeHtml(value) {
-            return String(value).replace(/[&<>"']/g, c => ({
-                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-            }[c]));
+            // Sin códigos HTML escritos en el script: Apps Script los convierte
+            // en caracteres reales y eso rompía el código (SyntaxError).
+            const div = document.createElement('div');
+            div.textContent = String(value);
+            return div.innerHTML.replace(/"/g, '\u0026quot;');
         }
 
         // ==========================================
