@@ -70,7 +70,7 @@
 
         /* BARRA LATERAL IZQUIERDA (QR) */
         .sidebar {
-            width: 320px;
+            width: 260px;
             flex-shrink: 0;
             background-color: rgba(0, 0, 0, 0.25);
             border-right: 2px solid var(--magenta);
@@ -135,12 +135,50 @@
         #upload-status { margin-top: 10px; font-size: 0.9rem; text-align: center; min-height: 35px; font-weight: bold; width: 100%; word-wrap: break-word; }
 
         /* SECCIÓN CENTRAL (CARRUSEL) */
+        /* ZONA CENTRAL: carrusel + mapa Waze fijo lado a lado */
+        .center-area {
+            flex-grow: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: row;
+        }
         .carousel-section {
             display: flex;
             flex-direction: column;
-            flex-grow: 1;
+            flex: var(--carousel-share, 1) 1 0;
             min-width: 0;
             position: relative;
+        }
+        .waze-section {
+            flex: var(--waze-share, 1.3) 1 0;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            border-left: 2px solid var(--magenta);
+            background-color: #071233;
+            padding: 12px;
+            box-sizing: border-box;
+        }
+        .waze-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 8px;
+        }
+        .live-dot {
+            display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+            background: #ff3b3b; margin-right: 6px; animation: pulse 1.5s infinite;
+        }
+        .waze-frame {
+            width: 100%;
+            flex: 1;
+            min-height: 0;
+            border: 2px solid var(--magenta);
+            border-radius: 8px;
+            background: #fff;
+        }
+        /* Pantallas angostas: el mapa pasa abajo del carrusel */
+        @media (max-width: 1500px) {
+            .center-area { flex-direction: column; }
+            .waze-section { border-left: none; border-top: 2px solid var(--magenta); }
         }
         .carousel-container {
             flex-grow: 1;
@@ -172,20 +210,9 @@
             border: 2px solid var(--magenta);
         }
         .slide img:not([src]) { display: none; }
-        .slide.active { pointer-events: auto; }
-        .slide { pointer-events: none; }
-        .waze-frame {
-            width: 100%;
-            flex: 1;
-            min-height: 0;
-            border: 2px solid var(--magenta);
-            border-radius: 8px;
-            background: #fff;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.6);
-        }
         .slide-title {
             margin-top: 15px;
-            font-size: 1.5rem;
+            font-size: 1.2rem;
             color: var(--pink);
             font-weight: bold;
             background-color: rgba(11, 28, 73, 0.8);
@@ -295,13 +322,23 @@
             <div id="upload-status"></div>
         </div>
 
-        <!-- SECCIÓN CENTRAL (CARRUSEL) -->
-        <div class="carousel-section">
-            <div class="progress-bar-container">
-                <div id="progress" class="progress-bar"></div>
+        <!-- ZONA CENTRAL: CARRUSEL + MAPA WAZE FIJO -->
+        <div class="center-area">
+            <div class="carousel-section">
+                <div class="progress-bar-container">
+                    <div id="progress" class="progress-bar"></div>
+                </div>
+                <div id="carousel" class="carousel-container">
+                    <div id="loading" class="loader">Sincronizando infografías...</div>
+                </div>
             </div>
-            <div id="carousel" class="carousel-container">
-                <div id="loading" class="loader">Sincronizando infografías...</div>
+
+            <div class="waze-section">
+                <div class="waze-header">
+                    <span class="section-title"><span class="live-dot"></span>Estado de rutas en vivo</span>
+                    <span class="badge-count">Waze</span>
+                </div>
+                <iframe id="waze-frame" class="waze-frame" allowfullscreen></iframe>
             </div>
         </div>
 
@@ -336,11 +373,9 @@
         let imagesData = [];
         let currentIndex = 0;
         const INTERVAL_MS = 15000;            // tiempo por infografía
-        const WAZE_MS = 30000;                // tiempo que se muestra el mapa de Waze
-        const WAZE_RELOAD_MS = 5 * 60000;     // recarga el mapa si lleva más de 5 min abierto
+        const WAZE_RELOAD_MS = 10 * 60000;    // recarga completa del mapa cada 10 min
         // Mapa en vivo oficial de Waze (embed). Cambia lat/lon/zoom para mover el encuadre.
         const WAZE_URL = 'https://embed.waze.com/es/iframe?zoom=13&lat=-39.8173&lon=-73.2425&ct=livemap';
-        let wazeLoadedAt = 0;
         const DATA_REFRESH_MS = 30000;        // refresco de asignaciones
         const IMAGES_REFRESH_MS = 10 * 60000; // revisa si hay infografías nuevas
         let carouselTimer;
@@ -446,42 +481,30 @@
                 carousel.appendChild(slide);
             });
 
-            // Última diapositiva: estado de rutas en vivo (Waze)
-            const wazeSlide = document.createElement('div');
-            wazeSlide.className = 'slide';
-            wazeSlide.id = 'slide-' + imagesData.length;
-            wazeSlide.innerHTML = `
-                <iframe id="waze-frame" class="waze-frame" allowfullscreen></iframe>
-                <div class="slide-title">Estado de rutas en vivo · Waze</div>
-            `;
-            carousel.appendChild(wazeSlide);
-            wazeLoadedAt = 0;
+            if (carouselTimer) clearTimeout(carouselTimer);
+            if (imagesData.length === 0) {
+                carousel.innerHTML = '<div class="loader">No hay infografías en la carpeta.</div>';
+                return;
+            }
 
             currentIndex = 0;
-            if (carouselTimer) clearTimeout(carouselTimer);
             nextStep();
         }
 
-        function isWazeSlide(index) { return index === imagesData.length; }
-
         function nextStep() {
-            const duration = isWazeSlide(currentIndex) ? WAZE_MS : INTERVAL_MS;
             showSlide(currentIndex);
-            startProgressBar(duration);
+            startProgressBar(INTERVAL_MS);
             carouselTimer = setTimeout(() => {
-                currentIndex = (currentIndex + 1) % (imagesData.length + 1);
+                currentIndex = (currentIndex + 1) % imagesData.length;
                 nextStep();
-            }, duration);
+            }, INTERVAL_MS);
         }
 
-        // Carga el mapa la primera vez y lo refresca si quedó viejo.
-        function ensureWazeLoaded() {
-            const frame = document.getElementById('waze-frame');
-            if (!frame) return;
-            if (Date.now() - wazeLoadedAt > WAZE_RELOAD_MS) {
-                frame.src = WAZE_URL;
-                wazeLoadedAt = Date.now();
-            }
+        // ==========================================
+        // MÓDULO: MAPA WAZE (FIJO)
+        // ==========================================
+        function loadWaze() {
+            document.getElementById('waze-frame').src = WAZE_URL;
         }
 
         // Pide la imagen al servidor (base64) la primera vez y la guarda en memoria.
@@ -524,11 +547,8 @@
         }
 
         function showSlide(index) {
-            const total = imagesData.length + 1;
-            const next = (index + 1) % total;
-            if (isWazeSlide(index) || isWazeSlide(next)) ensureWazeLoaded(); // precarga el mapa
             ensureImageLoaded(index);
-            ensureImageLoaded(next); // precarga la siguiente
+            ensureImageLoaded((index + 1) % imagesData.length); // precarga la siguiente
             const slides = document.querySelectorAll('.slide');
             slides.forEach(slide => slide.classList.remove('active'));
             const activeSlide = document.getElementById('slide-' + index);
@@ -637,6 +657,8 @@
         // ==========================================
         window.onload = function() {
             loadImages();
+            loadWaze();
+            setInterval(loadWaze, WAZE_RELOAD_MS);
             loadData();
             setInterval(loadData, DATA_REFRESH_MS);
             setInterval(refreshImageList, IMAGES_REFRESH_MS);
