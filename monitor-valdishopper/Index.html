@@ -172,6 +172,17 @@
             border: 2px solid var(--magenta);
         }
         .slide img:not([src]) { display: none; }
+        .slide.active { pointer-events: auto; }
+        .slide { pointer-events: none; }
+        .waze-frame {
+            width: 100%;
+            flex: 1;
+            min-height: 0;
+            border: 2px solid var(--magenta);
+            border-radius: 8px;
+            background: #fff;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.6);
+        }
         .slide-title {
             margin-top: 15px;
             font-size: 1.5rem;
@@ -325,9 +336,14 @@
         let imagesData = [];
         let currentIndex = 0;
         const INTERVAL_MS = 15000;            // tiempo por infografía
+        const WAZE_MS = 30000;                // tiempo que se muestra el mapa de Waze
+        const WAZE_RELOAD_MS = 5 * 60000;     // recarga el mapa si lleva más de 5 min abierto
+        // Mapa en vivo oficial de Waze (embed). Cambia lat/lon/zoom para mover el encuadre.
+        const WAZE_URL = 'https://embed.waze.com/es/iframe?zoom=13&lat=-39.8173&lon=-73.2425&ct=livemap';
+        let wazeLoadedAt = 0;
         const DATA_REFRESH_MS = 30000;        // refresco de asignaciones
         const IMAGES_REFRESH_MS = 10 * 60000; // revisa si hay infografías nuevas
-        let carouselInterval;
+        let carouselTimer;
         const imageCache = {};                // id -> data URL ya descargada
 
         function escapeHtml(value) {
@@ -418,11 +434,6 @@
             const carousel = document.getElementById('carousel');
             carousel.innerHTML = '';
 
-            if (imagesData.length === 0) {
-                carousel.innerHTML = '<div class="loader">No hay infografías en la carpeta.</div>';
-                return;
-            }
-
             imagesData.forEach((img, index) => {
                 const slide = document.createElement('div');
                 slide.className = 'slide';
@@ -435,16 +446,42 @@
                 carousel.appendChild(slide);
             });
 
-            currentIndex = 0;
-            showSlide(0);
-            startProgressBar();
+            // Última diapositiva: estado de rutas en vivo (Waze)
+            const wazeSlide = document.createElement('div');
+            wazeSlide.className = 'slide';
+            wazeSlide.id = 'slide-' + imagesData.length;
+            wazeSlide.innerHTML = `
+                <iframe id="waze-frame" class="waze-frame" allowfullscreen></iframe>
+                <div class="slide-title">Estado de rutas en vivo · Waze</div>
+            `;
+            carousel.appendChild(wazeSlide);
+            wazeLoadedAt = 0;
 
-            if(carouselInterval) clearInterval(carouselInterval);
-            carouselInterval = setInterval(() => {
-                currentIndex = (currentIndex + 1) % imagesData.length;
-                showSlide(currentIndex);
-                startProgressBar();
-            }, INTERVAL_MS);
+            currentIndex = 0;
+            if (carouselTimer) clearTimeout(carouselTimer);
+            nextStep();
+        }
+
+        function isWazeSlide(index) { return index === imagesData.length; }
+
+        function nextStep() {
+            const duration = isWazeSlide(currentIndex) ? WAZE_MS : INTERVAL_MS;
+            showSlide(currentIndex);
+            startProgressBar(duration);
+            carouselTimer = setTimeout(() => {
+                currentIndex = (currentIndex + 1) % (imagesData.length + 1);
+                nextStep();
+            }, duration);
+        }
+
+        // Carga el mapa la primera vez y lo refresca si quedó viejo.
+        function ensureWazeLoaded() {
+            const frame = document.getElementById('waze-frame');
+            if (!frame) return;
+            if (Date.now() - wazeLoadedAt > WAZE_RELOAD_MS) {
+                frame.src = WAZE_URL;
+                wazeLoadedAt = Date.now();
+            }
         }
 
         // Pide la imagen al servidor (base64) la primera vez y la guarda en memoria.
@@ -487,20 +524,23 @@
         }
 
         function showSlide(index) {
+            const total = imagesData.length + 1;
+            const next = (index + 1) % total;
+            if (isWazeSlide(index) || isWazeSlide(next)) ensureWazeLoaded(); // precarga el mapa
             ensureImageLoaded(index);
-            ensureImageLoaded((index + 1) % imagesData.length); // precarga la siguiente
+            ensureImageLoaded(next); // precarga la siguiente
             const slides = document.querySelectorAll('.slide');
             slides.forEach(slide => slide.classList.remove('active'));
             const activeSlide = document.getElementById('slide-' + index);
             if(activeSlide) activeSlide.classList.add('active');
         }
 
-        function startProgressBar() {
+        function startProgressBar(duration) {
             const progressBar = document.getElementById('progress');
             progressBar.style.transition = 'none';
             progressBar.style.width = '0%';
             setTimeout(() => {
-                progressBar.style.transition = `width ${INTERVAL_MS}ms linear`;
+                progressBar.style.transition = `width ${duration}ms linear`;
                 progressBar.style.width = '100%';
             }, 50);
         }
